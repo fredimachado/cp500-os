@@ -1,0 +1,46 @@
+<Project>
+  <!--
+    Assembles Z80 sources with sjasmplus. Import from a Microsoft.Build.NoTargets project and declare:
+
+      <Z80Program Include="stub.asm" OutputName="stub.rom" Defines="ORIGIN=0x0100" />
+
+    OutputName defaults to %(Filename).bin. Defines is a semicolon-separated list passed as -D options.
+    Binaries, listings and symbol files go to $(Z80OutputPath).
+  -->
+  <PropertyGroup>
+    <SjasmplusExe Condition="'$(SjasmplusExe)' == '' and '$(OS)' == 'Windows_NT'">$(RepoRoot)build/tools/sjasmplus/sjasmplus.exe</SjasmplusExe>
+    <SjasmplusExe Condition="'$(SjasmplusExe)' == ''">$(RepoRoot)build/tools/sjasmplus/sjasmplus</SjasmplusExe>
+    <Z80OutputPath>$(RepoRoot)build/z80/</Z80OutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Z80Include Include="$(MSBuildProjectDirectory)/**/*.asm;$(MSBuildProjectDirectory)/**/*.inc;$(RepoRoot)include/**/*.inc" />
+  </ItemGroup>
+
+  <Target Name="ResolveZ80Programs">
+    <ItemGroup>
+      <_Z80Program Include="@(Z80Program)">
+        <OutputFile Condition="'%(Z80Program.OutputName)' != ''">$(Z80OutputPath)%(Z80Program.OutputName)</OutputFile>
+        <OutputFile Condition="'%(Z80Program.OutputName)' == ''">$(Z80OutputPath)%(Z80Program.Filename).bin</OutputFile>
+        <DefineArgs Condition="'%(Z80Program.Defines)' != ''">-D$([System.String]::Copy('%(Z80Program.Defines)').Replace(';', ' -D'))</DefineArgs>
+      </_Z80Program>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CheckSjasmplus">
+    <Error Condition="!Exists('$(SjasmplusExe)')"
+           Text="sjasmplus not found at $(SjasmplusExe). Run 'pwsh eng/install-sjasmplus.ps1' or pass /p:SjasmplusExe=&lt;path&gt;." />
+  </Target>
+
+  <Target Name="AssembleZ80"
+          DependsOnTargets="ResolveZ80Programs;CheckSjasmplus"
+          BeforeTargets="Build"
+          Inputs="@(_Z80Program);@(Z80Include);$(MSBuildThisFileFullPath)"
+          Outputs="%(_Z80Program.OutputFile)">
+    <MakeDir Directories="$(Z80OutputPath)" />
+    <Exec Command="&quot;$(SjasmplusExe)&quot; --nologo --msg=war --fullpath --color=off --cleanonerror -I &quot;$(RepoRoot)include&quot; %(_Z80Program.DefineArgs) --raw=&quot;%(_Z80Program.OutputFile)&quot; --lst=&quot;$([System.IO.Path]::ChangeExtension('%(_Z80Program.OutputFile)', '.lst'))&quot; --sym=&quot;$([System.IO.Path]::ChangeExtension('%(_Z80Program.OutputFile)', '.sym'))&quot; &quot;%(_Z80Program.FullPath)&quot;" />
+    <ItemGroup>
+      <FileWrites Include="%(_Z80Program.OutputFile)" />
+    </ItemGroup>
+  </Target>
+</Project>

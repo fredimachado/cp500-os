@@ -1,2 +1,6 @@
 build/
 *.rom
+.vs/
+.idea/
+*.user
+TestResults/

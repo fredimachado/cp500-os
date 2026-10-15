@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Cp500Os.C5x\Cp500Os.C5x.csproj" />
+  </ItemGroup>
+</Project>
