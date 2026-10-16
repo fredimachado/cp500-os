@@ -1,0 +1,4 @@
+<Project>
+  <!-- Fixtures are not test projects: skip tests/Directory.Build.props and take only the repository defaults. -->
+  <Import Project="$(MSBuildThisFileDirectory)../../Directory.Build.props" />
+</Project>
