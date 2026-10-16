@@ -41,3 +41,8 @@ banner:
                 include "isr.asm"
                 include "keyboard.asm"
                 include "console.asm"
+                include "floppy.asm"
+                include "c5fs.asm"
+
+                assert $ <= BLK_BUF
+                ds ARENA_BASE - $, 0
