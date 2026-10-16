@@ -546,7 +546,10 @@ it gives network access with only a serial driver.
 - `tests/fixtures/z80/` holds Z80 programs the tests assemble:
   `hello-boot.asm` (`build/z80/hello-boot.bin`) is a boot sector that writes
   `BOOT OK` to the top-left of the screen and spins with interrupts disabled;
-  an assert fails the build if it outgrows 256 bytes.
+  an assert fails the build if it outgrows 256 bytes. `reloc-sample.asm` is
+  assembled at `0000h`, `0100h` and `6200h`; a test runs `mkreloc` on the
+  first two and checks that relocating to page `62h` reproduces the third
+  byte for byte.
 
 ### Stub ROM
 

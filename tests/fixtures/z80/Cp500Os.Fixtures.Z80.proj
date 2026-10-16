@@ -3,5 +3,8 @@
 
   <ItemGroup>
     <Z80Program Include="hello-boot.asm" />
+    <Z80Program Include="reloc-sample.asm" OutputName="reloc-sample-0000.bin" Defines="ORIGIN=0x0000" />
+    <Z80Program Include="reloc-sample.asm" OutputName="reloc-sample-0100.bin" Defines="ORIGIN=0x0100" />
+    <Z80Program Include="reloc-sample.asm" OutputName="reloc-sample-6200.bin" Defines="ORIGIN=0x6200" />
   </ItemGroup>
 </Project>
