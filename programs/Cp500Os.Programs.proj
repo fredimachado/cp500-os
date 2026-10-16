@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.Build.NoTargets">
+  <Import Project="$(RepoRoot)eng/Z80.targets" />
+
+  <ItemGroup>
+    <ProjectReference Include="$(RepoRoot)tools/Cp500Os.MkReloc.Cli/Cp500Os.MkReloc.Cli.csproj" />
+    <ProjectReference Include="$(RepoRoot)tests/fixtures/z80/Cp500Os.Fixtures.Z80.proj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Z80Program Include="sh.asm" OutputName="sh-0000.bin" Defines="ORIGIN=0x0000" />
+    <Z80Program Include="sh.asm" OutputName="sh-0100.bin" Defines="ORIGIN=0x0100" />
+    <Z80Program Include="hi.asm" OutputName="hi-0000.bin" Defines="ORIGIN=0x0000" />
+    <Z80Program Include="hi.asm" OutputName="hi-0100.bin" Defines="ORIGIN=0x0100" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <MkRelocDll>$(RepoRoot)build/artifacts/bin/Cp500Os.MkReloc.Cli/$([System.String]::Copy('$(Configuration)').ToLowerInvariant())/mkreloc.dll</MkRelocDll>
+    <Shell0000>$(Z80OutputPath)sh-0000.bin</Shell0000>
+    <Shell0100>$(Z80OutputPath)sh-0100.bin</Shell0100>
+    <Hi0000>$(Z80OutputPath)hi-0000.bin</Hi0000>
+    <Hi0100>$(Z80OutputPath)hi-0100.bin</Hi0100>
+    <Reloc0000>$(Z80OutputPath)reloc-sample-0000.bin</Reloc0000>
+    <Reloc0100>$(Z80OutputPath)reloc-sample-0100.bin</Reloc0100>
+    <ShellC5x>$(Z80OutputPath)sh.c5x</ShellC5x>
+    <HiC5x>$(Z80OutputPath)hi.c5x</HiC5x>
+    <RelocC5x>$(Z80OutputPath)reloc.c5x</RelocC5x>
+  </PropertyGroup>
+
+  <Target Name="PackC5x" AfterTargets="AssembleZ80"
+          Inputs="$(Shell0000);$(Shell0100);$(Hi0000);$(Hi0100);$(Reloc0000);$(Reloc0100);$(MkRelocDll)"
+          Outputs="$(ShellC5x);$(HiC5x);$(RelocC5x)">
+    <Error Condition="!Exists('$(MkRelocDll)')" Text="mkreloc was not built at $(MkRelocDll)." />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(MkRelocDll)&quot; &quot;$(Shell0000)&quot; &quot;$(Shell0100)&quot; -o &quot;$(ShellC5x)&quot; --bss 128 --stack 256 --entry 0" />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(MkRelocDll)&quot; &quot;$(Hi0000)&quot; &quot;$(Hi0100)&quot; -o &quot;$(HiC5x)&quot; --bss 0 --stack 256 --entry 0" />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(MkRelocDll)&quot; &quot;$(Reloc0000)&quot; &quot;$(Reloc0100)&quot; -o &quot;$(RelocC5x)&quot; --bss 0 --stack 256 --entry 0" />
+  </Target>
+</Project>

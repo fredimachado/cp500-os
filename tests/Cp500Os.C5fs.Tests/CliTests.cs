@@ -132,6 +132,22 @@ public sealed class CliTests : IDisposable
     }
 
     [Fact]
+    public void SysPutWritesFilesInTheSameSessionAsTheKernel()
+    {
+        string image = PathOf("disk.img");
+        File.WriteAllBytes(PathOf("kernel.bin"), Pattern(512, 9));
+        File.WriteAllBytes(PathOf("note.bin"), "c5fs-ok"u8.ToArray());
+        Run("format", image, "--size", "180");
+
+        Assert.Equal(0, Run("sys", image, "--kernel", PathOf("kernel.bin"), "--put", $"{PathOf("note.bin")}=/msg").Exit);
+
+        Volume volume = Volume.Open(File.ReadAllBytes(image));
+        Assert.Equal(2, volume.Superblock.Generation);
+        Assert.Equal("c5fs-ok"u8.ToArray(), volume.ReadFile("/msg"));
+        Assert.Equal(512, volume.ReadFile("/sys/kernel").Length);
+    }
+
+    [Fact]
     public void BootSectorsInstallAtFormatAndThroughSys()
     {
         string image = PathOf("disk.img");

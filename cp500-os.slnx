@@ -8,6 +8,9 @@
   <Folder Name="/kernel/">
     <Project Path="kernel/Cp500Os.Kernel.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
   </Folder>
+  <Folder Name="/programs/">
+    <Project Path="programs/Cp500Os.Programs.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
+  </Folder>
   <Folder Name="/rom/">
     <Project Path="rom/Cp500Os.StubRom.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
   </Folder>

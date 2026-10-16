@@ -85,12 +85,18 @@ public static class C5fsCli
             parse.GetRequiredValue(image), time, volume => volume.Remove(parse.GetRequiredValue(path)))));
 
         Option<string?> kernel = new("--kernel") { Description = "Kernel file, installed as /sys/kernel in one contiguous run" };
-        Command sys = new("sys", "Install the boot sector and/or the kernel") { image, boot, kernel };
+        Option<string[]> puts = new("--put")
+        {
+            Description = "Copy a host file to an absolute path in this same session, as host=path. Repeatable.",
+            Arity = ArgumentArity.ZeroOrMore,
+        };
+        Command sys = new("sys", "Install the boot sector and/or the kernel") { image, boot, kernel, puts };
         sys.SetAction(Guarded(parse =>
         {
             byte[]? bootCode = ReadOptionalFile(parse.GetValue(boot));
             byte[]? kernelCode = ReadOptionalFile(parse.GetValue(kernel));
-            if (bootCode is null && kernelCode is null)
+            (string Path, byte[] Content)[] staged = StagePuts(parse.GetValue(puts) ?? []);
+            if (bootCode is null && kernelCode is null && staged.Length == 0)
             {
                 throw new C5fsException(C5fsError.EINVAL, "sys needs --boot, --kernel or both");
             }
@@ -105,6 +111,11 @@ public static class C5fsCli
                 if (kernelCode is not null)
                 {
                     volume.InstallKernel(kernelCode);
+                }
+
+                foreach ((string path, byte[] content) in staged)
+                {
+                    PutFile(volume, path, content);
                 }
             });
             if (volume.Superblock.Kernel is Extent run && kernelCode is not null)
@@ -170,6 +181,35 @@ public static class C5fsCli
     }
 
     private static byte[]? ReadOptionalFile(string? path) => path is null ? null : File.ReadAllBytes(path);
+
+    private static (string Path, byte[] Content)[] StagePuts(string[] specs)
+    {
+        var staged = new (string Path, byte[] Content)[specs.Length];
+        for (int i = 0; i < specs.Length; i++)
+        {
+            string spec = specs[i];
+            int split = spec.IndexOf('=');
+            if (split <= 0 || split == spec.Length - 1)
+            {
+                throw new C5fsException(C5fsError.EINVAL, $"--put '{spec}' must be host=path");
+            }
+
+            staged[i] = (spec[(split + 1)..], File.ReadAllBytes(spec[..split]));
+        }
+
+        return staged;
+    }
+
+    private static void PutFile(Volume volume, string path, byte[] content)
+    {
+        VolumePath parsed = VolumePath.Parse(path);
+        if (!parsed.Parent.IsRoot)
+        {
+            volume.CreateDirectory(parsed.Parent.ToString(), createParents: true);
+        }
+
+        volume.WriteFile(path, content);
+    }
 
     private static void PrintInfo(TextWriter output, Volume volume)
     {
