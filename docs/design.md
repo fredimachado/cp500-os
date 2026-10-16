@@ -308,20 +308,43 @@ keeps both the table and the loader small (the approach CP/M 3 uses for PRL
 files).
 
 ```text
-offset  size  field
-0       4     magic "C5X", version 1
-4       2     image size (code + initialized data)
-6       2     bss size
-8       2     stack size (the loader adds the 192-byte kernel reserve)
-10      2     entry offset
-12      4     reserved
-16      n     image
-16+n    n/8   relocation bitmap: bit i set means image byte i is the high
-              byte of an absolute address
+offset  size        field
+0       4           magic "C5X" (43h 35h 58h), version byte 01h
+4       2           image size n (code + initialized data)
+6       2           bss size
+8       2           stack size (the loader adds the 192-byte kernel reserve)
+10      2           entry offset
+12      4           reserved, must be 00h
+16      n           image, linked at 0000h
+16+n    ceil(n/8)   relocation bitmap: bit i set means image byte i is the
+                    high byte of an absolute address
 ```
 
+All fields are little-endian. The file is exactly `16 + n + ceil(n/8)`
+bytes. Bit `i` of the bitmap is bit `i % 8` (least significant first) of
+bitmap byte `i / 8`, and bits past `n` in the last byte are zero. Readers
+reject a wrong magic or version, nonzero reserved bytes, a short or long file
+and set padding bits, so a future version can give them meaning.
+
 The build computes the bitmap toolchain-independently: link the program at
-`0000h` and at `0100h` and mark every byte that differs by exactly 1.
+`0000h` and at `0100h` and mark every byte that is exactly 1 higher (mod 256)
+in the second link. A byte that changes by anything else means the code is not
+page-relocatable (for example it uses the low byte of an address, or
+`addr + 80h` arithmetic that carries differently), and the build fails with
+the offending offsets.
+
+Relocating to page `p` (load address `p * 256`) adds `p` mod 256 to every
+marked byte and touches nothing else. `Relocator.Relocate` in `Cp500Os.C5x`
+is that exact algorithm and is the oracle the kernel loader tests compare
+against.
+
+A valid header has `entry offset < image size` (so the image is never empty)
+and `image + bss + stack + 192` at most 40,448 bytes, the 158-page arena.
+
+`mkreloc <link0000.bin> <link0100.bin> -o <out.c5x> [--bss n] [--stack n]
+[--entry n]` writes the file; numbers are decimal or `0x` hex, and the
+defaults are bss 0, stack 256 and entry 0. `mkreloc --info <file.c5x>` prints
+the header, relocation count and the memory the loader will allocate.
 
 At `spawn` the kernel allocates one block for image, bss and stack, relocates
 it, copies argv and the environment just below the stack, and starts the task
