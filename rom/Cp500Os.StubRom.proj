@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.Build.NoTargets">
+  <Import Project="$(RepoRoot)eng/Z80.targets" />
+
+  <ItemGroup>
+    <Z80Program Include="stub.asm" OutputName="stub.rom" />
+  </ItemGroup>
+</Project>
