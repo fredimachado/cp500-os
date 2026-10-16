@@ -26,6 +26,7 @@ km_sides:
                 call console_puts
                 call c5fs_mount
                 jr c, km_mount
+                call load_wr
                 ld a, ARENA_FIRST
                 ld (ARENA_NEXT), a
                 call become_shell

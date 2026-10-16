@@ -55,6 +55,12 @@ syscall:
                 exx
                 ex af, af'
                 ld a, c
+                cp SYS_SYNC
+                jp z, sys_sync
+                cp SYS_TIME
+                jp z, sys_time
+                cp SYS_SETTIME
+                jp z, sys_settime
                 cp SYS_GETCWD + 1
                 jr nc, sc_einval
                 ld (sc_hl), hl
@@ -108,6 +114,50 @@ sc_table:
                 dw sys_mkdir, sys_remove, sys_rename, sys_chdir
                 dw sys_getcwd
                 assert $ - sc_table == 45 * 2
+
+; HL = resident routine. It returns carry and A, or a result in HL.
+wr_go:
+                ld a, (wr_ready)
+                or a
+                jr z, wr_down
+                push hl
+                ld hl, wr_back
+                ex (sp), hl
+                jp (hl)
+wr_back:
+                jp c, syscall_err
+                jp syscall_ok
+wr_down:
+                ld a, EIO
+                jp syscall_err
+
+; Like wr_go, but return to the caller so open can allocate a descriptor.
+wr_go_keep:
+                ld a, (wr_ready)
+                or a
+                jr z, wr_keep_down
+                push hl
+                ld hl, wr_keep_back
+                ex (sp), hl
+                jp (hl)
+wr_keep_back:
+                ret
+wr_keep_down:
+                ld a, EIO
+                scf
+                ret
+
+sys_sync:
+                ld hl, WR_SYNC
+                jp wr_go
+
+sys_time:
+                ld hl, WR_TIME
+                jp wr_go
+
+sys_settime:
+                ld hl, WR_SET
+                jp wr_go
 
 sys_getpid:
                 ld a, (TASK + TASK_ID)
@@ -505,14 +555,18 @@ sys_write:
                 cp KIND_CON_OUT
                 jr z, write_con
                 cp KIND_FILE
-                jr z, write_ro
+                jr z, write_file
                 cp KIND_DIR
-                jr z, write_ro
+                jr z, write_dir
                 ld a, EBADF
                 jp syscall_err
-write_ro:
-                ld a, EROFS
+write_dir:
+                ld a, EISDIR
                 jp syscall_err
+write_file:
+                ld (ofile_ptr), hl
+                ld hl, WR_WRITE
+                jp wr_go
 write_con:
                 ld hl, (io_buf)
                 ld bc, (io_len)
@@ -685,6 +739,7 @@ readdir_done:
                 jp syscall_ok
 
 sys_mkdir:
+                ld (io_path), de
                 call c5fs_walk
                 jr nc, mkdir_have
                 cp ENOENT
@@ -692,8 +747,8 @@ sys_mkdir:
                 ld a, b
                 cp 1
                 jr nz, mkdir_miss
-                ld a, EROFS
-                jp syscall_err
+                ld hl, WR_MKDIR
+                jp wr_go
 mkdir_miss:
                 ld a, ENOENT
                 jp syscall_err
@@ -713,8 +768,9 @@ remove_walk:
                 ld de, (io_path)
                 call c5fs_walk
                 jp c, syscall_err
-                ld a, EROFS
-                jp syscall_err
+                ld (wr_child), hl
+                ld hl, WR_REMOVE
+                jp wr_go
 
 path_is_root:
                 ld hl, (io_path)
@@ -736,14 +792,8 @@ sys_rename:
                 ld de, (ren_new)
                 call c5fs_syntax
                 jp c, syscall_err
-                ld de, (ren_old)
-                call c5fs_walk
-                jp c, syscall_err
-                ld de, (ren_new)
-                call c5fs_parent
-                jp c, syscall_err
-                ld a, EROFS
-                jp syscall_err
+                ld hl, WR_RENAME
+                jp wr_go
 
 sys_chdir:
                 call c5fs_walk
@@ -925,6 +975,7 @@ cwd_place:
                 ret
 
 sys_open:
+                ld (io_path), de
                 ld a, b
                 ld (open_flags), a
                 and 0C0h
@@ -964,38 +1015,12 @@ open_class:
                 ld a, EIO
                 jp syscall_err
 open_mut:
-                call c5fs_walk
-                jr nc, open_have
-                cp ENOENT
-                jp nz, syscall_err
-                ld a, b
-                cp 1
-                jr nz, open_enoent
-                ld a, (open_flags)
-                and O_CREATE
-                jr z, open_enoent
-                ld a, EROFS
-                jp syscall_err
-open_enoent:
-                ld a, ENOENT
-                jp syscall_err
-open_have:
-                ld a, (open_flags)
-                and O_CREATE | O_EXCL
-                cp O_CREATE | O_EXCL
-                jr nz, open_rofs
-                ld a, EEXIST
-                jp syscall_err
-open_rofs:
-                ld a, (INO_BUF + INO_TYPE)
-                and 0Fh
-                cp INO_KIND_DIR
-                jr nz, open_file_ro
-                ld a, EISDIR
-                jp syscall_err
-open_file_ro:
-                ld a, EROFS
-                jp syscall_err
+                ld hl, WR_OPEN
+                call wr_go_keep
+                jp c, syscall_err
+                ld a, (open_kind)
+                ld c, a
+                jp open_new
 open_new:
                 ld a, c
                 ld (open_kind), a
@@ -1054,6 +1079,22 @@ of_fill:
                 ld (hl), a
                 inc hl
                 ld (hl), a
+                dec hl
+                dec hl
+                dec hl
+                ld a, (open_flags)
+                and O_APPEND
+                jr z, of_noapp
+                ld a, (INO_BUF + INO_SIZE)
+                ld (hl), a
+                inc hl
+                ld a, (INO_BUF + INO_SIZE + 1)
+                ld (hl), a
+                inc hl
+                ld a, (INO_BUF + INO_SIZE + 2)
+                ld (hl), a
+                inc hl
+of_noapp:
                 ld a, c
                 ld hl, TASK + TASK_FD
                 ld e, b
@@ -1524,6 +1565,15 @@ ld_pages_up:
 ld_entry:
                 ld a, (ld_page)
                 add a, b
+                cp WR_BASE >> 8
+                jr c, ld_entry_room
+                jr z, ld_entry_room
+                ld a, ENOMEM
+                scf
+                ret
+ld_entry_room:
+                ld a, (ld_page)
+                add a, b
                 jr nc, ld_entry_ok
                 or a
                 jr z, ld_entry_ok
@@ -1633,6 +1683,7 @@ ren_new:        dw 0
 open_flags:     db 0
 open_kind:      db 0
 open_ino:       dw 0
+ofile_ptr:      dw 0
 seek_whence:    db 0
 seek_base:      ds 4, 0
 cwd_buf:        dw 0
