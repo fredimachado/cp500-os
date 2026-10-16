@@ -19,4 +19,10 @@ pwsh eng/install-sjasmplus.ps1   # once: pinned assembler into build/tools
 dotnet test --solution cp500-os.slnx
 ```
 
-Everything the build produces goes under `build/`.
+Everything the build produces goes under `build/`. Clone with
+`--recurse-submodules` (or run `git submodule update --init`): the boot tests
+run heh8080's headless runner from `external/heh8080`.
+
+CI boots with the stub ROM in `rom/`. To also run the boot tests against the
+real CP-500 ROM, copy your dump to `roms/cp500.rom` or point `CP500_ROM` at it.
+The ROM is copyrighted and never committed.
