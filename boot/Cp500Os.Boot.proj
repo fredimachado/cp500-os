@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.Build.NoTargets">
+  <Import Project="$(RepoRoot)eng/Z80.targets" />
+
+  <ItemGroup>
+    <Z80Program Include="boot.asm" OutputName="boot.bin" />
+  </ItemGroup>
+</Project>

@@ -39,6 +39,60 @@ KERNEL_BASE         equ 4200h
 BOOT_SECTOR         equ 4300h           ; the ROM loads track 0 sector 1 here and jumps to it
 BOOT_SECTOR_SIZE    equ 256
 
+; The boot sector runs from this copy. Superblocks and geometry bytes sit under it.
+BOOT_HIGH           equ 0FF00h
+SB_A                equ 0FE00h          ; superblock A, boot only
+SB_B                equ 0FD00h          ; superblock B, boot only
+BOOT_SIDES          equ 0FC00h          ; boot only
+BOOT_SPT            equ 0FC01h          ; boot only
+
+; Offsets inside one 256-byte superblock. Boot code uses these names.
+SB_MAGIC            equ 0
+SB_VERSION          equ 4
+SB_FLAGS            equ 5
+SB_SEQ              equ 6
+SB_SIDES            equ 27
+SB_TRACKS           equ 28
+SB_SPT              equ 29
+SB_KERNEL_START     equ 30
+SB_KERNEL_COUNT     equ 32
+SB_CRC              equ 254
+
+; System-page bytes. One owner writes each address. See docs/design.md.
+TICK_COUNT          equ 4015h           ; 4 bytes, little-endian, ISR writes
+KBD_HEAD            equ 4019h           ; ISR writes, main reads
+KBD_TAIL            equ 401Ah           ; main writes, ISR reads
+KBD_REP_ROW         equ 401Bh           ; 0FFh means no repeat key
+KBD_REP_COL         equ 401Ch
+KBD_REP_AGE         equ 401Dh
+KBD_PREV            equ 401Eh           ; 8 raw samples
+KBD_RING            equ 4026h           ; 32 slots, ends at 4045h
+KBD_RING_SIZE       equ 32
+KBD_ACCEPTED        equ 404Ch           ; 8 debounced rows
+
+CUR_ROW             equ 4054h
+CUR_COL             equ 4055h
+CUR_PHASE           equ 4056h           ; 0 hidden, 1 block
+CUR_UNDER           equ 4057h
+CUR_SHOWN           equ 4058h           ; 0 video holds CUR_UNDER, 1 video holds the block
+ESC_ROW             equ 4059h
+ESC_COL             equ 405Ah
+ANSI_STATE          equ 405Bh           ; 0 ground, 1 esc, 2 csi
+ANSI_P0             equ 405Ch
+ANSI_P1             equ 405Dh
+ANSI_N              equ 405Eh           ; parameters stored, 0 to 2
+ANSI_ACC            equ 405Fh           ; digit accumulator, saturates at 255
+ANSI_BAD            equ 4060h
+BLINK_DIV           equ 4061h
+
+ANSI_GROUND         equ 0
+ANSI_ESC            equ 1
+ANSI_CSI            equ 2
+CURSOR_BLOCK        equ 0BFh
+K_DOWN              equ 1               ; keyboard table only, never a ring byte
+K_LEFT              equ 2
+K_RIGHT             equ 3
+
 ARENA_BASE          equ 6200h
 
 ; ------------------------------------------------------------ interrupts E0h-E7h
