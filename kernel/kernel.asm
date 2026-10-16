@@ -11,17 +11,30 @@
 
 kernel_main:
                 di
+                ld a, (ix + SB_SIDES)
+                cp 1
+                jr z, km_sides
+                ld a, 2
+km_sides:
+                ld (VOL_SIDES), a
+                ld a, (ix + SB_SPT)
+                ld (VOL_SPT), a
                 ld sp, BOOT_STACK_TOP
                 call sys_init
                 ei
                 ld hl, banner
                 call console_puts
-
-echo:
-                call kbd_get
-                jr nc, echo
-                call console_putc
-                jr echo
+                call c5fs_mount
+                jr c, km_mount
+                ld a, ARENA_FIRST
+                ld (ARENA_NEXT), a
+                call become_shell
+km_mount:
+                ld a, 'M'
+                ld (VIDEO_BASE + 15 * VIDEO_COLS), a
+                di
+                halt
+                jr km_mount
 
 banner:
                 db 1Bh, "[2J"

@@ -2,6 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="$(RepoRoot)boot/Cp500Os.Boot.proj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="$(RepoRoot)kernel/Cp500Os.Kernel.proj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="$(RepoRoot)programs/Cp500Os.Programs.proj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="$(RepoRoot)tools/Cp500Os.C5fs.Cli/Cp500Os.C5fs.Cli.csproj" />
   </ItemGroup>
 
@@ -10,13 +11,17 @@
     <C5fsDll>$(RepoRoot)build/artifacts/bin/Cp500Os.C5fs.Cli/$([System.String]::Copy('$(Configuration)').ToLowerInvariant())/c5fs.dll</C5fsDll>
     <BootBin>$(RepoRoot)build/z80/boot.bin</BootBin>
     <KernelBin>$(RepoRoot)build/z80/kernel.bin</KernelBin>
+    <ShellC5x>$(RepoRoot)build/z80/sh.c5x</ShellC5x>
+    <HiC5x>$(RepoRoot)build/z80/hi.c5x</HiC5x>
+    <RelocC5x>$(RepoRoot)build/z80/reloc.c5x</RelocC5x>
+    <MsgBin>$(RepoRoot)programs/c5fs-ok.bin</MsgBin>
   </PropertyGroup>
 
   <Target Name="BuildCp500Disk" AfterTargets="Build"
-          Inputs="$(BootBin);$(KernelBin);$(C5fsDll)"
+          Inputs="$(BootBin);$(KernelBin);$(C5fsDll);$(ShellC5x);$(HiC5x);$(RelocC5x);$(MsgBin)"
           Outputs="$(Cp500DiskImage)">
     <Error Condition="!Exists('$(C5fsDll)')" Text="c5fs was not built at $(C5fsDll)." />
     <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(C5fsDll)&quot; format &quot;$(Cp500DiskImage)&quot; --size 360 --label cp500-os --boot &quot;$(BootBin)&quot;" />
-    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(C5fsDll)&quot; sys &quot;$(Cp500DiskImage)&quot; --boot &quot;$(BootBin)&quot; --kernel &quot;$(KernelBin)&quot;" />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(C5fsDll)&quot; sys &quot;$(Cp500DiskImage)&quot; --boot &quot;$(BootBin)&quot; --kernel &quot;$(KernelBin)&quot; --put &quot;$(ShellC5x)=/bin/sh&quot; --put &quot;$(HiC5x)=/bin/hi&quot; --put &quot;$(MsgBin)=/msg&quot; --put &quot;$(RelocC5x)=/lib/reloc.c5x&quot;" />
   </Target>
 </Project>

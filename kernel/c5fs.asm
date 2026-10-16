@@ -661,16 +661,16 @@ rd_copy:
                 or c
                 jr z, rd_done
                 push bc
-                ld hl, (fs_dst)
-                ld de, BLK_BUF
+                ld hl, BLK_BUF
                 ld a, (fs_within)
-                add a, e
-                ld e, a
-                ld a, d
+                add a, l
+                ld l, a
+                ld a, h
                 adc a, 0
-                ld d, a
+                ld h, a
+                ld de, (fs_dst)
                 ldir
-                ld (fs_dst), hl
+                ld (fs_dst), de
                 pop bc
                 ld hl, (fs_got)
                 add hl, bc
@@ -925,6 +925,9 @@ walk_seg:
 walk_look:
                 call walk_find
                 jr nc, walk_hit
+                or a
+                scf
+                ret nz
                 ld a, (fs_islast)
                 or a
                 jr z, walk_miss0
@@ -984,7 +987,10 @@ walk_slashes:
                 ld hl, (fs_ptr)
                 ld a, (hl)
                 cp '/'
-                ret nz
+                jr z, walk_slash_eat
+                xor a
+                ret
+walk_slash_eat:
                 call walk_eat
                 ret c
                 jr walk_slashes
@@ -1028,12 +1034,14 @@ walk_nend:
 
 walk_char:
                 cp 20h
-                jr c, walk_inval
+                jp c, walk_inval
                 cp 7Fh
-                ret c
+                jr c, walk_char_ok
                 cp 0A0h
-                ret nc
-                jp walk_inval
+                jp c, walk_inval
+walk_char_ok:
+                xor a
+                ret
 
 walk_dot:
                 ld a, (fs_namel)
@@ -1119,6 +1127,7 @@ walk_fadv:
                 inc de
                 jr walk_fnext
 walk_fno:
+                xor a
                 scf
                 ret
 

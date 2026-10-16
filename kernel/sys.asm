@@ -57,16 +57,20 @@ syscall:
                 ld a, c
                 cp SYS_GETCWD + 1
                 jr nc, sc_einval
+                ld (sc_hl), hl
+                ld (sc_de), de
                 ld hl, sc_table
                 ld e, a
                 ld d, 0
                 add hl, de
                 add hl, de
-                ld a, (hl)
+                ld e, (hl)
                 inc hl
-                ld h, (hl)
-                ld l, a
-                jp (hl)
+                ld d, (hl)
+                push de
+                ld hl, (sc_hl)
+                ld de, (sc_de)
+                ret
 
 sc_einval:
                 ld a, EINVAL
@@ -1287,9 +1291,11 @@ ld_argv_len:
                 ld hl, (ld_hdr + 8)
                 or a
                 sbc hl, de
+                jr nc, ld_argv_fit
                 ld a, ENOMEM
                 scf
-                ret c
+                ret
+ld_argv_fit:
                 xor a
                 ret
 ld_argv_inval:
@@ -1335,42 +1341,77 @@ ld_exact_adv:
 ld_reloc:
                 ld hl, 0
                 ld (ld_index), hl
+ld_reloc_loop:
                 ld hl, (ld_bbytes)
-ld_reloc_chunk:
                 ld a, h
                 or l
                 ret z
-                ld bc, 256
+                ld a, (ld_pos)
+                ld (ld_byte), a
+                ld a, (ld_pos + 1)
+                ld e, a
+                ld a, (ld_pos + 2)
+                ld d, a
+                call fs_map
+                ret c
+                ld hl, BLK_BUF
+                call floppy_read
+                ret c
+                ld a, (ld_byte)
+                ld e, a
+                ld d, 0
+                ld hl, 256
+                or a
+                sbc hl, de
+                ld de, (ld_bbytes)
+                push hl
+                or a
+                sbc hl, de
+                pop hl
+                jr c, ld_reloc_n
+                ld h, d
+                ld l, e
+ld_reloc_n:
+                ld b, h
+                ld c, l
+                ld a, (ld_byte)
+                ld hl, BLK_BUF
+                add a, l
+                ld l, a
+                ld a, h
+                adc a, 0
+                ld h, a
+                push bc
+                call ld_apply
+                pop bc
+                call ld_pos_add
+                ld hl, (ld_bbytes)
                 or a
                 sbc hl, bc
-                jr nc, ld_reloc_n
-                ld bc, (ld_bbytes)
-                ld hl, 0
-                jr ld_reloc_go
-ld_reloc_n:
                 ld (ld_bbytes), hl
-                ld hl, 1
-ld_reloc_go:
-                push hl
-                push bc
-                ld hl, BLK_BUF
-                call ld_exact
-                pop bc
-                pop hl
-                ret c
-                ld a, h
-                or a
-                jr nz, ld_reloc_saved
-                ld hl, 0
-                ld (ld_bbytes), hl
-ld_reloc_saved:
-                call ld_apply
-                ld hl, (ld_bbytes)
-                jr ld_reloc_chunk
+                jr ld_reloc_loop
 
-; BC = bytes in BLK_BUF.
+ld_pos_add:
+                ld hl, ld_pos
+                ld a, (hl)
+                add a, c
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc a, b
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc a, 0
+                ld (hl), a
+                inc hl
+                ld a, (hl)
+                adc a, 0
+                ld (hl), a
+                ret
+
+; HL = first bitmap byte, BC = count. The bytes stay in BLK_BUF until this returns.
 ld_apply:
-                ld hl, BLK_BUF
                 ld (ld_bptr), hl
 ld_apply_byte:
                 ld a, b
@@ -1426,20 +1467,26 @@ ld_zero_bss:
                 ld l, 0
                 ld de, (ld_hdr + 4)
                 add hl, de
-                ld (child_argv), hl
                 ld bc, (ld_hdr + 6)
                 ld a, b
                 or c
-                ret z
+                jr z, ld_argv_at
                 ld (hl), 0
                 dec bc
                 ld a, b
                 or c
-                ret z
+                jr z, ld_bss_one
                 ld e, l
                 ld d, h
                 inc de
                 ldir
+                ld h, d
+                ld l, e
+                jr ld_argv_at
+ld_bss_one:
+                inc hl
+ld_argv_at:
+                ld (child_argv), hl
                 ret
 
 ld_copy_argv:
@@ -1492,7 +1539,88 @@ ld_entry_ok:
                 xor a
                 ret
 
+become_shell:
+                ld de, shell_path
+                call c5fs_walk
+                jr c, shell_halt
+                ld a, (INO_BUF + INO_TYPE)
+                and 0Fh
+                cp INO_KIND_FILE
+                jr nz, shell_halt
+                ld a, ARENA_FIRST
+                ld hl, empty_argv
+                call load_c5x
+                jr c, shell_halt
+                ld (CHILD_ENTRY), hl
+                ld a, 1
+                ld (TASK + TASK_ID), a
+                ld a, ARENA_FIRST
+                ld (TASK + TASK_BASE), a
+                ld a, b
+                ld (TASK + TASK_PAGES), a
+                add a, ARENA_FIRST
+                ld (ARENA_NEXT), a
+                xor a
+                ld (TASK + TASK_SP), a
+                ld (TASK + TASK_SP + 1), a
+                ld (TASK + TASK_VOL), a
+                ld (CHILD_STATE), a
+                ld hl, 1
+                ld (TASK + TASK_CWD), hl
+                ld hl, shell_fds
+                ld de, TASK + TASK_FD
+                ld bc, FD_SLOTS
+                ldir
+                ld hl, CHILD_FD
+                ld b, FD_SLOTS
+shell_fd:
+                ld (hl), 0FFh
+                inc hl
+                djnz shell_fd
+                call shell_ofiles
+                ld sp, (child_sp)
+                ld hl, (CHILD_ENTRY)
+                push hl
+                ld hl, (child_argv)
+                xor a
+                ld bc, 0
+                ld de, 0
+                ld ix, 0
+                ld iy, 0
+                ei
+                ret
+shell_halt:
+                di
+                halt
+                jr shell_halt
+
+shell_ofiles:
+                ld hl, OFILE
+                ld de, OFILE + 1
+                ld bc, OFILE_SLOTS * OF_STRIDE - 1
+                ld (hl), 0
+                ldir
+                ld hl, OFILE
+                ld (hl), KIND_CON_IN
+                inc hl
+                ld (hl), 1
+                ld hl, OFILE + OF_STRIDE
+                ld (hl), KIND_CON_OUT
+                inc hl
+                ld (hl), 1
+                ld hl, OFILE + 2 * OF_STRIDE
+                ld (hl), KIND_CON_OUT
+                inc hl
+                ld (hl), 1
+                ret
+
+shell_path:     db "/bin/sh", 0
+empty_argv:     db 0, 0
+shell_fds:      db 0, 1, 2, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
+
 exit_code:      db 0
+sc_hl:          dw 0
+sc_de:          dw 0
 spawn_argv:     dw 0
 spawn_map:      dw 0
 io_buf:         dw 0
