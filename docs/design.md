@@ -631,7 +631,7 @@ sequenceDiagram
     participant Kernel
     ROM->>Boot: read track 0 sector 1 to 4300h, jump
     Boot->>Boot: copy self to FF00h
-    Boot->>Kernel: read superblock A (B if invalid), read kernel blocks to 4200h, jump
+    Boot->>Kernel: read superblocks A and B, take the valid one with the higher sequence, read kernel blocks to 4200h, jump
     Kernel->>Kernel: install 4000h, 4012h, 4049h jumps, IM 1, enable timer IRQ and FDC NMI
     Kernel->>Kernel: probe expansions, init arena, consoles, mount /
     Kernel->>Kernel: spawn /etc/rc, then a shell on console 0
