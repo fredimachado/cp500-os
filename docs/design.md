@@ -1,7 +1,8 @@
 # cp500-os Design
 
-Status: draft 1. Nothing here is implemented yet. Numbers marked "budget" are
-targets to measure against, not facts.
+Status: milestone 2 is implemented. Numbers marked "budget" are targets to
+measure against, not facts. Addresses, escape sequences and the keyboard map
+below are the ones the kernel uses.
 
 ## 1. Goals and non-goals
 
@@ -79,7 +80,12 @@ System page (`4000h-40FFh`):
 | `404Ch`-`40FFh` | Kernel variables |
 
 The boot sector lands at `4300h`, inside the kernel range. It first copies
-itself to `FF00h` and continues there, then loads the kernel to `4200h`.
+itself to `FF00h` and continues there, then loads the first kernel block to
+`4200h`. That block loads the rest of the run to `4300h` and jumps there. A
+256-byte sector cannot hold the CRC, the superblock choice and a multi-block
+read together. The boot sector's own divide uses the low byte of the kernel
+start, so that block number has to be below 256. The continuing loader uses
+the full 16-bit start.
 
 ### Arena
 
@@ -160,6 +166,21 @@ after 15 ticks (0.5 s) and runs at one key every 3 ticks. Keys go into a
 32-entry ring buffer per active console. Dead keys compose accents (`'` + `a`
 gives `á`). CLEAR plus a digit switches virtual consoles.
 
+Milestone 2 pins the scan in the system page. `4015h` is the 4-byte
+little-endian tick count. The ring is 32 bytes at `4026h`, with the head at
+`4019h` (the scanner writes it) and the tail at `401Ah` (the main line writes
+it). One slot stays empty so the two indexes can tell full from empty. Repeat
+state is `401Bh`-`401Dh`. Raw samples are `401Eh`-`4025h`. Debounced rows are
+`404Ch`-`4053h`.
+
+Row `n` is the byte at `3800h` with address bit `n` set (`3801h` is `@` and
+A-G). Unshifted letters are lowercase, so a typed `Hi` is `Hi`. SHIFT is row 7
+bit 0 and changes the glyph. ENTER is `0Dh` and moves to column 0 of the next
+row. BREAK, CLEAR and SHIFT alone are dropped. UP is the `[` key. DOWN, LEFT
+and RIGHT are delivered as `ESC [ B`, `ESC [ D` and `ESC [ C`. Dead keys and
+Portuguese glyph mapping are not in this milestone. A `--type` hold is about
+three ticks, so it cannot reach the repeat delay.
+
 ### Console
 
 - Each virtual console is 64x16. The active one lives in video RAM; inactive
@@ -167,7 +188,13 @@ gives `á`). CLEAR plus a digit switches virtual consoles.
   20 ms.
 - Output understands a subset of ANSI/VT100 escape sequences: cursor movement
   and positioning, erase line/screen, save/restore cursor. This keeps ported
-  programs and future serial or telnet sessions consistent.
+  programs and future serial or telnet sessions consistent. Milestone 2
+  accepts `ESC 7` and `ESC 8` (save and restore), `ESC [ A/B/C/D` (move; a
+  missing or zero count moves one cell), `ESC [ H` and `ESC [ f` (1-based
+  position; a missing row or column is 1), `ESC [ J` and `ESC [ K` (0 from
+  the cursor, 1 through the cursor, 2 the whole screen or line; a missing
+  count is 0). An unknown sequence is discarded. The cursor is the `BFh`
+  block, saved and restored around blinks. Console state is `4054h`-`4061h`.
 - Text is ISO-8859-1. The console maps accented letters onto the CP-500's
   Portuguese glyphs at `00h-1Fh` and falls back to the base letter where no
   glyph exists. The exact table comes from the character generator dump.
@@ -631,7 +658,7 @@ sequenceDiagram
     participant Kernel
     ROM->>Boot: read track 0 sector 1 to 4300h, jump
     Boot->>Boot: copy self to FF00h
-    Boot->>Kernel: read superblocks A and B, take the valid one with the higher sequence, read kernel blocks to 4200h, jump
+    Boot->>Kernel: read superblocks A and B, take the valid one with the higher sequence, read the first kernel block to 4200h, jump
     Kernel->>Kernel: install 4000h, 4012h, 4049h jumps, IM 1, enable timer IRQ and FDC NMI
     Kernel->>Kernel: probe expansions, init arena, consoles, mount /
     Kernel->>Kernel: spawn /etc/rc, then a shell on console 0
@@ -746,9 +773,9 @@ these:
   `E0h = 04h` (timer IRQ enabled but `DI`), `RETN` at `4049h`, its own data in
   `4000h-404Bh` and `41E5h-4224h`, and the video control latch at `ECh`
   written. The stub leaves `SP = 4200h`, both interrupt masks at `00h`, and
-  does not touch RAM below `4300h` or `ECh`.
-  The boot sector must set its own stack and must not use `RST`, the system
-  page or the interrupt masks before it has set them up.
+  does not write `ECh`. Its last `CALL` leaves the return address `C2 00` at
+  `41FEh`. The boot sector must set its own stack and must not use `RST`, the
+  system page or the interrupt masks before it has set them up.
 
 ## 11. Milestones
 

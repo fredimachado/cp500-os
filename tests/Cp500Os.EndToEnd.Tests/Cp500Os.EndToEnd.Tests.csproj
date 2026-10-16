@@ -2,6 +2,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Cp500Os.C5fs\Cp500Os.C5fs.csproj" />
     <ProjectReference Include="..\..\external\heh8080\src\Heh8080.Cp500Runner\Heh8080.Cp500Runner.csproj" />
+    <ProjectReference Include="..\..\image\Cp500Os.Disk.proj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\rom\Cp500Os.StubRom.proj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\fixtures\z80\Cp500Os.Fixtures.Z80.proj" ReferenceOutputAssembly="false" />
   </ItemGroup>

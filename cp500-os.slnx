@@ -1,4 +1,13 @@
 <Solution>
+  <Folder Name="/boot/">
+    <Project Path="boot/Cp500Os.Boot.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
+  </Folder>
+  <Folder Name="/image/">
+    <Project Path="image/Cp500Os.Disk.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
+  </Folder>
+  <Folder Name="/kernel/">
+    <Project Path="kernel/Cp500Os.Kernel.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
+  </Folder>
   <Folder Name="/rom/">
     <Project Path="rom/Cp500Os.StubRom.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
   </Folder>
