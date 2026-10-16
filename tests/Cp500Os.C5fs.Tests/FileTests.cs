@@ -234,6 +234,61 @@ public class FileTests
     }
 
     [Fact]
+    public void RenameKeepsTheInodeAndLeavesTheOldSlotEmpty()
+    {
+        Volume volume = Format360();
+        volume.WriteFile("/a", [1, 2, 3]);
+        volume.WriteFile("/b", [4]);
+
+        volume.Rename("/a", "/c");
+
+        Assert.Equal(new byte[] { 1, 2, 3 }, volume.ReadFile("/c"));
+        Assert.Equal(C5fsError.ENOENT, ErrorOf(() => volume.ReadFile("/a")));
+        Assert.Equal(2, volume.Stat("/c").InodeNumber);
+        byte[] image = volume.ToImage();
+        Span<byte> root = Block(image, 20);
+        Assert.True(root[..4].SequenceEqual(new byte[] { 1, 0, (byte)'.', (byte)'.' }));
+        Assert.False(root[4..32].ContainsAnyExcept((byte)0));
+        Assert.False(root[32..64].ContainsAnyExcept((byte)0));
+        Assert.True(root[64..67].SequenceEqual(new byte[] { 3, 0, (byte)'b' }));
+        Assert.False(root[67..96].ContainsAnyExcept((byte)0));
+        Assert.True(root[96..99].SequenceEqual(new byte[] { 2, 0, (byte)'c' }));
+        Assert.False(root[99..128].ContainsAnyExcept((byte)0));
+        AssertConsistent(volume);
+    }
+
+    [Fact]
+    public void ReadOnlyInodeRejectsWriteRemoveAndRename()
+    {
+        Volume volume = Format360();
+        volume.WriteFile("/a", [9]);
+        byte[] before = volume.ToImage();
+        volume.SetAttributes("/a", InodeAttributes.ReadOnly);
+        byte[] marked = volume.ToImage();
+
+        Assert.Equal(C5fsError.EROFS, ErrorOf(() => volume.WriteFile("/a", [1])));
+        Assert.Equal(C5fsError.EROFS, ErrorOf(() => volume.Remove("/a")));
+        Assert.Equal(C5fsError.EROFS, ErrorOf(() => volume.Rename("/a", "/b")));
+        Assert.Equal(C5fsError.EEXIST, ErrorOf(() => volume.CreateDirectory("/a")));
+        Assert.Equal(marked, volume.ToImage());
+        Assert.NotEqual(before, marked);
+        Assert.Equal(new byte[] { 9 }, Volume.Open(marked).ReadFile("/a"));
+    }
+
+    [Fact]
+    public void FoldedEqualRenameWritesNothing()
+    {
+        Volume volume = Format360();
+        Assert.Equal(C5fsError.ENOENT, ErrorOf(() => volume.Rename("/missing", "/MISSING")));
+        volume.WriteFile("/a", [1]);
+        byte[] image = volume.ToImage();
+
+        volume.Rename("/a", "/A");
+
+        Assert.Equal(image, volume.ToImage());
+    }
+
+    [Fact]
     public void FilesLargerThan24BitsAreRejected()
     {
         Volume volume = Format(VolumeGeometry.Partition(65535, 64));

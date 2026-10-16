@@ -90,13 +90,19 @@ public static class C5fsCli
             Description = "Copy a host file to an absolute path in this same session, as host=path. Repeatable.",
             Arity = ArgumentArity.ZeroOrMore,
         };
-        Command sys = new("sys", "Install the boot sector and/or the kernel") { image, boot, kernel, puts };
+        Option<string[]> readonlyPaths = new("--readonly")
+        {
+            Description = "Set the read-only bit on an absolute path in this same session. Repeatable.",
+            Arity = ArgumentArity.ZeroOrMore,
+        };
+        Command sys = new("sys", "Install the boot sector and/or the kernel") { image, boot, kernel, puts, readonlyPaths };
         sys.SetAction(Guarded(parse =>
         {
             byte[]? bootCode = ReadOptionalFile(parse.GetValue(boot));
             byte[]? kernelCode = ReadOptionalFile(parse.GetValue(kernel));
             (string Path, byte[] Content)[] staged = StagePuts(parse.GetValue(puts) ?? []);
-            if (bootCode is null && kernelCode is null && staged.Length == 0)
+            string[] protect = parse.GetValue(readonlyPaths) ?? [];
+            if (bootCode is null && kernelCode is null && staged.Length == 0 && protect.Length == 0)
             {
                 throw new C5fsException(C5fsError.EINVAL, "sys needs --boot, --kernel or both");
             }
@@ -116,6 +122,11 @@ public static class C5fsCli
                 foreach ((string path, byte[] content) in staged)
                 {
                     PutFile(volume, path, content);
+                }
+
+                foreach (string path in protect)
+                {
+                    volume.SetAttributes(path, InodeAttributes.ReadOnly);
                 }
             });
             if (volume.Superblock.Kernel is Extent run && kernelCode is not null)

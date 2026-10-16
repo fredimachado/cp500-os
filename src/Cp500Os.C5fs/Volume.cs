@@ -224,6 +224,8 @@ public sealed class Volume
         DirectorySlot slot = _directories.Find(parentInode, parsed.Name)
             ?? throw new C5fsException(C5fsError.ENOENT, $"'{parsed}' does not exist");
         Inode inode = _inodes.Get(slot.InodeNumber);
+        RequireMutable(inode, parsed);
+        RequireMutable(parentInode, parsed.Parent);
         if (inode.IsDirectory && _directories.Entries(inode).Any())
         {
             throw new C5fsException(C5fsError.ENOTEMPTY, $"directory '{parsed}' is not empty");
@@ -236,6 +238,69 @@ public sealed class Volume
             _superblock = _superblock with { Kernel = null };
         }
 
+        mutation.Complete();
+    }
+
+    /// <summary>
+    /// Moves a file or directory. An existing destination is <see cref="C5fsError.EEXIST"/>.
+    /// Folded-equal paths leave the volume unchanged. <c>/sys/kernel</c> cannot be renamed.
+    /// </summary>
+    public void Rename(string oldPath, string newPath)
+    {
+        VolumePath from = VolumePath.Parse(oldPath);
+        VolumePath to = VolumePath.Parse(newPath);
+        if (from.IsRoot)
+        {
+            throw new C5fsException(C5fsError.EBUSY, "the root directory cannot be renamed");
+        }
+
+        if (to.IsRoot)
+        {
+            throw new C5fsException(C5fsError.EINVAL, "'/' is not a file name");
+        }
+
+        if (from.Equals(KernelPath) || to.Equals(KernelPath))
+        {
+            throw new C5fsException(C5fsError.EINVAL, "'/sys/kernel' is not an ordinary file");
+        }
+
+        if (from.Equals(to))
+        {
+            _ = Resolve(from);
+            return;
+        }
+
+        using Mutation mutation = BeginMutation();
+        (ushort parent, Inode parentInode) = ResolveDirectory(from.Parent);
+        DirectorySlot slot = _directories.Find(parentInode, from.Name)
+            ?? throw new C5fsException(C5fsError.ENOENT, $"'{from}' does not exist");
+        Inode inode = _inodes.Get(slot.InodeNumber);
+        RequireMutable(inode, from);
+        RequireMutable(parentInode, from.Parent);
+        (ushort destination, Inode destinationInode) = ResolveDirectory(to.Parent);
+        RequireMutable(destinationInode, to.Parent);
+        if (_directories.Find(destinationInode, to.Name) is not null)
+        {
+            throw new C5fsException(C5fsError.EEXIST, $"'{to}' already exists");
+        }
+
+        _directories.Add(destination, to.Name, slot.InodeNumber, mutation.Now);
+        _directories.Remove(parent, slot.Index, mutation.Now);
+        if (inode.IsDirectory && parent != destination)
+        {
+            _directories.SetParent(slot.InodeNumber, destination, mutation.Now);
+        }
+
+        mutation.Complete();
+    }
+
+    /// <summary>Replaces the attribute bits. Kind, extents, size and creation time stay.</summary>
+    public void SetAttributes(string path, InodeAttributes attributes)
+    {
+        VolumePath parsed = VolumePath.Parse(path);
+        using Mutation mutation = BeginMutation();
+        (ushort number, Inode inode) = Resolve(parsed);
+        _inodes.Write(number, inode.WithAttributes(attributes, mutation.Now));
         mutation.Complete();
     }
 
@@ -364,6 +429,7 @@ public sealed class Volume
 
     private ushort MakeDirectory(ushort parent, FileName name, C5Time now)
     {
+        RequireMutable(_inodes.Get(parent), name.Value);
         ushort number = _inodes.Allocate();
         Extent block = _directories.CreateEmpty(parent);
         _inodes.Write(number, new Inode(InodeKind.Directory, InodeAttributes.None, Inode.DirectoryEntrySize, now, now, [block]));
@@ -373,7 +439,8 @@ public sealed class Volume
 
     private Inode WriteContent(ushort parent, VolumePath path, ReadOnlySpan<byte> content, C5Time now, bool contiguous)
     {
-        DirectorySlot? existing = _directories.Find(_inodes.Get(parent), path.Name);
+        Inode parentInode = _inodes.Get(parent);
+        DirectorySlot? existing = _directories.Find(parentInode, path.Name);
         Inode? previous = existing is null ? null : _inodes.Get(existing.InodeNumber);
         if (previous?.IsDirectory == true)
         {
@@ -382,6 +449,7 @@ public sealed class Volume
 
         if (previous is not null)
         {
+            RequireMutable(previous, path);
             _allocator.Free(previous.Extents);
         }
 
@@ -397,10 +465,19 @@ public sealed class Volume
         _inodes.Write(number, inode);
         if (existing is null)
         {
+            RequireMutable(parentInode, path.Parent);
             _directories.Add(parent, path.Name, number, now);
         }
 
         return inode;
+    }
+
+    private static void RequireMutable(Inode inode, object name)
+    {
+        if ((inode.Attributes & InodeAttributes.ReadOnly) != 0)
+        {
+            throw new C5fsException(C5fsError.EROFS, $"'{name}' is read-only");
+        }
     }
 
     private Mutation BeginMutation()
