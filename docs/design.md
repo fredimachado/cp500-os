@@ -330,14 +330,22 @@ at the entry point with `SP` set. The C runtime's startup code turns that into
 
 ## 7. File system (C5FS)
 
+This section is the on-disk format. The host library (`src/Cp500Os.C5fs`) and
+the `c5fs` tool implement it exactly; the kernel must read and write the same
+bytes.
+
 ### Parameters
 
 - Block = 256 bytes = one sector. Block numbers are 16-bit, so a volume holds
-  at most 16 MiB. A virtual hard disk can be larger and is split into
-  partitions.
-- A 360 KiB floppy has 1440 blocks; a 180 KiB floppy has 720.
+  at most 65,535 blocks (16 MiB). A virtual hard disk can be larger and is
+  split into partitions.
+- All multi-byte integers are little-endian.
+- Floppies have 40 tracks of 18 sectors. A 360 KiB floppy has 2 sides and
+  1440 blocks; a 180 KiB floppy has 1 side and 720 blocks.
 - Floppy block `n` maps to track `n / (18 * sides)`, side
-  `(n / 18) % sides`, sector `n % 18 + 1`.
+  `(n / 18) % sides`, sector `n % 18 + 1`. Raw images are track-major with
+  the sides interleaved, so block `n` is at byte `n * 256` of the image.
+  Images are exactly 184,320 or 368,640 bytes.
 
 ### Layout
 
@@ -345,68 +353,120 @@ at the entry point with `SP` set. The C runtime's startup code turns that into
 |--------|---------|
 | 0 | Boot sector (floppies) or partition table (hard disk) |
 | 1, 2 | Superblock copies A and B |
-| 3 .. | Allocation bitmap, 1 bit per block (1 block on floppies, up to 32 on 16 MiB) |
-| .. | Inode table, 8 inodes per block |
-| .. | Data |
+| 3 .. | Allocation bitmap, `ceil(block count / 2048)` blocks (1 on floppies, 32 on 16 MiB) |
+| .. | Inode table, `inode count / 8` blocks |
+| .. | Data, from the first data block to the end |
+
+The inode table starts right after the bitmap and the first data block right
+after the inode table. Format presets:
+
+| | 180 KiB | 360 KiB |
+|-|---------|---------|
+| Inodes (usable) | 64 (63) | 128 (127) |
+| Bitmap | block 3 | block 3 |
+| Inode table | blocks 4-11 | blocks 4-19 |
+| First data block, root directory | 12 | 20 |
+| Free after format | 707 blocks, 62 inodes | 1419 blocks, 126 inodes |
 
 On a hard disk, block 0 holds up to 4 partition entries (type, start block,
 block count, 3 bytes each for start and count), and each partition is a C5FS
 volume starting with its own block 0 (unused) and superblocks at 1 and 2.
+Partition volumes record sides, tracks and sectors as `0`.
+
+### Allocation bitmap
+
+Block `n` is bit `n % 8` (least significant first) of byte `n / 8`, counting
+from the first bitmap block; `1` = used. The blocks before the first data
+block are always marked used. The padding bits past the last block, up to the
+end of the last bitmap block, are always `1`, so a byte-wise scan for a
+non-`FFh` byte never finds a block that does not exist.
+
+The free block count is not stored; the kernel counts the bitmap at mount,
+which avoids a superblock write per allocation.
 
 ### Superblock
 
 | Offset | Size | Field |
 |--------|------|-------|
 | 0 | 4 | Magic `C5FS` |
-| 4 | 1 | Version |
-| 5 | 1 | Flags: bit 0 clean |
-| 6 | 4 | Sequence number, the copy with the higher valid sequence wins |
+| 4 | 1 | Version, `1` |
+| 5 | 1 | Flags: bit 0 clean; other bits `0` |
+| 6 | 4 | Sequence number |
 | 10 | 4 | Volume id, random at format time |
-| 14 | 2 | Generation, incremented each time the volume goes from clean to dirty |
+| 14 | 2 | Generation, `1` at format |
 | 16 | 2 | Block count |
-| 18 | 2 | Bitmap start block |
+| 18 | 2 | Bitmap start block, `3` |
 | 20 | 1 | Bitmap length in blocks |
 | 21 | 2 | Inode table start |
-| 23 | 2 | Inode count |
+| 23 | 2 | Inode count (table slots, a multiple of 8) |
 | 25 | 2 | First data block |
-| 27 | 1 | Sides (floppy geometry, `0` on hard disk) |
-| 28 | 1 | Tracks per side |
-| 29 | 1 | Sectors per track |
-| 30 | 2 | Kernel start block |
-| 32 | 2 | Kernel block count |
+| 27 | 1 | Sides (`0` on hard disk) |
+| 28 | 1 | Tracks per side (`0` on hard disk) |
+| 29 | 1 | Sectors per track (`0` on hard disk) |
+| 30 | 2 | Kernel start block, `0` when there is no kernel |
+| 32 | 2 | Kernel block count, `0` when there is no kernel, otherwise 1-255 |
 | 34 | 4 | Created, seconds since 1980 |
 | 38 | 4 | Last written, seconds since 1980 |
-| 42 | 16 | Volume label, ISO-8859-1, NUL padded |
-| 58 | 196 | Reserved |
-| 254 | 2 | CRC-16/CCITT over bytes 0-253 |
+| 42 | 16 | Volume label, printable ISO-8859-1, NUL padded (16 bytes has no NUL) |
+| 58 | 196 | Reserved, `0` |
+| 254 | 2 | CRC over bytes 0-253 |
 
-The superblock is written alternately to A and B, so a write torn by power loss
-always leaves one valid copy. The free block count is not stored; the kernel
-counts the bitmap at mount, which avoids a superblock write per allocation.
+The CRC is CRC-16/CCITT-FALSE: polynomial `1021h`, initial value `FFFFh`, no
+reflection, no final XOR. Its check value (CRC of ASCII `123456789`) is
+`29B1h`.
 
-The kernel is stored as one contiguous run of blocks, recorded in the
-superblock, so the 256-byte boot sector only has to read a block range. The
-`sys` tool places it.
+Choosing a copy: a copy is valid when its magic and CRC check out. Of the
+valid copies, the one with the higher sequence number wins; on a tie, A wins.
+Every reader applies this rule, the boot sector included. Writes go to the
+copy that is not current, with the sequence number incremented, so a write
+torn by power loss always leaves the previous copy intact. A volume with no
+valid copy does not mount.
+
+Format writes both copies, identical except for the sequence: A gets 1 and B
+gets 2, so B is current on a fresh volume and the first write goes to A.
+
+The generation lets a kernel that cached a floppy notice that it was changed
+elsewhere (section 5). It is incremented each time the volume goes from clean
+to dirty. A host tool session (open the image, make changes, save it) counts
+as one such transition: it writes one new superblock copy with sequence + 1,
+generation + 1, the clean flag set and "last written" updated. A session that
+changes nothing writes nothing and leaves the image byte-identical.
 
 ### Inode (32 bytes)
 
+Inode `n` is slot `n` of the inode table (block `table start + n / 8`, offset
+`(n % 8) * 32`). Slot 0 is reserved and stays all zero, because inode number
+`0` in a directory entry means a free entry. Inode 1 is the root directory.
+A free inode is 32 zero bytes.
+
 | Offset | Size | Field |
 |--------|------|-------|
-| 0 | 1 | Type: free, file, directory. Flags: read-only, hidden, indirect extents |
+| 0 | 1 | Type and flags, see below |
 | 1 | 1 | Extent count |
-| 2 | 3 | Size in bytes (24-bit, up to 16 MiB) |
+| 2 | 3 | Size in bytes (24-bit, at most 16,777,215) |
 | 5 | 4 | Modified, seconds since 1980 |
 | 9 | 4 | Created, seconds since 1980 |
-| 13 | 18 | 6 extents of (start block 2 bytes, length 1 byte, 1-255 blocks) |
-| 31 | 1 | Reserved |
+| 13 | 18 | 6 extent slots of (start block 2 bytes, length 1 byte) |
+| 31 | 1 | Reserved, `0` |
 
-When a file needs more than 6 extents, the 6th points at an indirect block
-holding up to 85 more. The allocator prefers extending the last extent, so
-files written sequentially on a fresh disk use one or two extents, and
-reading them needs no extra block lookups.
+Type byte: bits 0-3 type (`0` free, `1` file, `2` directory), bit 4
+read-only, bit 5 hidden, bit 6 indirect extents, bit 7 `0`.
 
-Inode 1 is the root directory. Format defaults: 128 inodes on 360 KiB
-(16 blocks), 64 on 180 KiB.
+An extent is a run of 1-255 consecutive blocks inside the data area. A file
+owns exactly `ceil(size / 256)` data blocks in total; nothing is
+preallocated, and the bytes after the end of the file in its last block are
+`0`.
+
+- With 6 extents or fewer, they sit in the inline slots in file order, the
+  extent count is the number used, the indirect flag is clear and unused
+  slots are zero.
+- With 7 to 90 extents, the indirect flag is set and the extent count is the
+  total. Inline slots 1-5 hold extents 1-5. Slot 6 holds the indirect block
+  number in its 2 start bytes and `0` in its length byte. The indirect block
+  holds extents 6 onwards packed 3 bytes each from offset 0 (up to 85), and
+  its remaining bytes are zero. The indirect block is marked used in the
+  bitmap and belongs to the inode; it is freed when the extent count drops
+  back to 6.
 
 ### Directories
 
@@ -417,9 +477,81 @@ A directory is a file of 32-byte entries, 8 per block:
 | 0 | 2 | Inode number, `0` = free entry |
 | 2 | 30 | Name, ISO-8859-1, NUL padded |
 
-The first entry of every directory is `..`. Names are case-preserving and
-compared case-insensitively, folding accented letters too (`Ação` equals
-`AÇÃO`). Names may contain any printable character except `/`.
+- The first entry of every directory is `..`, pointing at the parent. The
+  root's `..` points at inode 1. `.` is not stored.
+- The size is a non-zero multiple of 32. A directory grows by one entry at a
+  time and by one zeroed block when the last block is full. Removing an entry
+  zeroes all 32 bytes; free entries are reused before the directory grows, and
+  directories never shrink.
+- Names are 1-30 bytes. A 30-byte name has no terminator; after a shorter
+  name every byte is `0`. Allowed bytes are the printable ISO-8859-1
+  characters (`20h-7Eh` and `A0h-FFh`) except `/`. `.` and `..` are reserved.
+- Names are case-preserving and compared case-insensitively by folding each
+  byte: `A-Z` to `a-z`, and `C0h-DEh` to `E0h-FEh` except `D7h` (multiplication
+  sign). So `Ação` equals `AÇÃO`, but `Acao` does not equal `Ação`: this is
+  case folding, not accent stripping. `DFh` and `FFh` have no partner. Two
+  entries of one directory never have equal folded names.
+- Paths are absolute, `/`-separated and at most 127 bytes.
+- An inode is referenced by exactly one directory entry (no hard links).
+
+Host tools convert names to Unicode NFC and then to ISO-8859-1, rejecting
+characters outside it. They list directories in folded byte order.
+
+### Allocation
+
+The kernel and the host tools allocate the same way, so images built on the
+host look like images written by the OS:
+
+1. Extend the file's last extent in place while the next blocks are free and
+   the extent stays within 255 blocks.
+2. Otherwise take the lowest-numbered free run that holds all remaining
+   blocks (at most 255).
+3. Otherwise take the lowest-numbered free run whatever its size, and repeat.
+
+An indirect block, when needed, is the lowest-numbered free block once the
+data blocks are allocated. A file that would need more than 90 extents fails
+with `ENOSPC`. The allocator prefers extending the last extent, so files
+written sequentially on a fresh disk use one or two extents, and reading them
+needs no extra block lookups. Replacing a file's contents frees its old blocks
+first and keeps its inode number, attributes and creation time.
+
+### Boot sector and kernel
+
+Block 0 holds up to 256 bytes of boot code, zero-padded.
+
+The kernel is the regular file `/sys/kernel`, stored as exactly one extent of
+1-255 blocks (budget: 8 KiB, 32 blocks). The superblock's kernel start and
+count record that extent, so the 256-byte boot sector only has to read a block
+range and needs no file system code. The `sys` tool installs it: it frees the
+previous kernel, takes the lowest-numbered run of enough contiguous free
+blocks and fails with `ENOSPC` when there is none. Writing `/sys/kernel` as an
+ordinary file is refused, and removing it clears the superblock's kernel
+fields, so the two always agree.
+
+### Consistency rules
+
+`fsck` and `c5fs check` verify, reporting every violation:
+
+- The current superblock is valid and its layout fields match the block and
+  inode counts.
+- Every allocated inode is well-formed as described above, including its
+  indirect block and size against its extents. Free inodes and slot 0 are
+  all zero.
+- The bitmap equals the set of owned blocks exactly: metadata blocks, inode
+  extents and indirect blocks, with no block owned twice. Padding bits are set.
+- Every directory starts with a correct `..`, has no duplicate folded names,
+  only valid names, zeroed free entries, and entries that point at allocated
+  inodes.
+- Every inode except the root is referenced exactly once; the root is not
+  referenced by any entry other than `..`.
+- The superblock's kernel fields are zero exactly when `/sys/kernel` does not
+  exist, and otherwise equal its single extent.
+
+Errors use the numbers in section 6: `ENOENT`, `EEXIST`, `ENOTDIR`, `EISDIR`,
+`ENOTEMPTY` with their usual meaning, `EINVAL` for bad names, paths, sizes and
+images, `ENOSPC` for no free blocks, no free inodes, too many extents or no
+contiguous kernel run, `EIO` for malformed on-disk structures, and `EBUSY`
+for removing `/`.
 
 ### Crash consistency
 
@@ -439,6 +571,10 @@ been idle. Mounting a dirty volume rebuilds the bitmap from the inode table,
 which on a floppy means reading about 20 blocks. `fsck` does the full check
 (duplicate names, orphan inodes) on demand.
 
+The host tools never leave a volume half-written: they change an in-memory
+copy and replace the image file in one rename, so a failed command leaves the
+image byte-identical.
+
 ### File tree
 
 The boot volume is `/`. Other volumes appear under `/mnt` by device name
@@ -457,10 +593,11 @@ provided by the kernel, not stored on disk.
 
 ### Time without a clock
 
-The kernel keeps time from the 30 Hz tick. At boot it takes, in order: the
-hard disk expansion's clock if present, the network time if configured, or the
-root volume's "last written" time, which at least keeps timestamps moving
-forward. `date` sets it by hand.
+Times are unsigned 32-bit seconds since 1980-01-01 00:00 local time (no time
+zone is stored), which lasts until 2116. The kernel keeps time from the 30 Hz
+tick. At boot it takes, in order: the hard disk expansion's clock if present,
+the network time if configured, or the root volume's "last written" time,
+which at least keeps timestamps moving forward. `date` sets it by hand.
 
 ## 8. Boot sequence
 
