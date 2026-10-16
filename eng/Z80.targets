@@ -38,7 +38,7 @@
           Inputs="@(_Z80Program);@(Z80Include);$(MSBuildThisFileFullPath)"
           Outputs="%(_Z80Program.OutputFile)">
     <MakeDir Directories="$(Z80OutputPath)" />
-    <Exec Command="&quot;$(SjasmplusExe)&quot; --nologo --msg=war --fullpath --color=off --cleanonerror -I &quot;$(RepoRoot)include&quot; %(_Z80Program.DefineArgs) --raw=&quot;%(_Z80Program.OutputFile)&quot; --lst=&quot;$([System.IO.Path]::ChangeExtension('%(_Z80Program.OutputFile)', '.lst'))&quot; --sym=&quot;$([System.IO.Path]::ChangeExtension('%(_Z80Program.OutputFile)', '.sym'))&quot; &quot;%(_Z80Program.FullPath)&quot;" />
+    <Exec Command="&quot;$(SjasmplusExe)&quot; --nologo --msg=war --fullpath --color=off --cleanonerror -I &quot;$(RepoRoot)include&quot; %(_Z80Program.DefineArgs) --raw=&quot;%(_Z80Program.OutputFile)&quot; --lst=&quot;$([System.IO.Path]::ChangeExtension('%(_Z80Program.OutputFile)', '.lst'))&quot; --sym=&quot;$([System.IO.Path]::ChangeExtension('%(_Z80Program.OutputFile)', '.sym'))&quot; &quot;$([System.String]::Copy('%(_Z80Program.FullPath)').Replace('\', '/'))&quot;" />
     <ItemGroup>
       <FileWrites Include="%(_Z80Program.OutputFile)" />
     </ItemGroup>
