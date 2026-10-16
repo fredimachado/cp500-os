@@ -206,14 +206,33 @@ three ticks, so it cannot reach the repeat delay.
 
 ### Floppy
 
-- Sector transfers use the Model III technique: interrupts off, WAIT enabled in
-  `F4h`, an `INI` loop that the WAIT line paces against DRQ, and the FDC's
+`floppy_read` is the polled loop the boot sector already runs. `DE` is the
+16-bit block and `HL` is the 256-byte destination. The routine divides by
+`VOL_SPT`, then takes the track from the quotient (shifted right when the
+volume has two sides) and the sector from the remainder plus one. A track
+above 255 is `EIO`. Interrupts stay off for the seek and the read. Seek is
+`FDC_CMD_SEEK` with head load and the 30 ms step rate, followed by a poll for
+not-busy. The read is `FDC_CMD_READ`. Not-busy before 256 bytes is `EIO`.
+`DRQ` moves one byte with `INI`, and `B` starts at 0 so the loop runs 256
+times. A 16-bit poll that expires is `EIO`. After the sector, not ready, CRC
+error, record not found, or lost data is `EIO`. Both returns enable
+interrupts. The routine does not call the console. `DE`, `HL`, `IX`, `IY`,
+and the alternate registers are unchanged. `DISK_WAIT` is never set.
+`PORT_NMI` stays 0. `nmi` is `RETN`.
+
+The Model III WAIT-plus-INTRQ transfer is not implemented and is not claimed.
+A green emulator run shows only that the poll completed the sector. The notes
+below describe that unimplemented technique.
+
+- Sector transfers would run with interrupts off, WAIT enabled on the disk
+  port, an `INI` loop that the WAIT line paces against DRQ, and the FDC's
   INTRQ arriving as NMI to end the transfer. At 2 MHz, MFM leaves about 65 CPU
   cycles per byte, so no interrupt may run during a transfer. One sector holds
-  interrupts off for about 8 ms, well under a tick; the timer IRQ stays
+  interrupts off for about 8 ms, well under a tick. The timer IRQ stays
   latched and is serviced right after.
-- Seeks run with interrupts on. The NMI handler records completion and the
-  waiting task is woken on the next tick, so other tasks run during seeks.
+- Seeks would run with interrupts on. The NMI handler would record completion
+  and the waiting task would wake on the next tick, so other tasks run during
+  seeks.
 - Disk changes cannot be detected by hardware on this machine. After a drive
   has been idle for 2 s (motor off), the next access rereads the superblock
   and compares the volume id and generation (section 7). A mismatch drops the
@@ -312,6 +331,64 @@ Time:
 
 Limits: 8 descriptors per task, 16 open files system-wide, 4 pipes of 256 bytes
 each, paths up to 127 bytes.
+
+### Milestone 3 calls
+
+The kernel implements `exit`, `spawn`, `wait`, `getpid`, `open`, `close`,
+`read`, `write`, `seek`, `stat`, `fstat`, `readdir`, `mkdir`, `remove`,
+`rename`, `chdir`, and `getcwd`. Every other `C`, including `yield`, `sleep`,
+`kill`, `uptime`, `alloc`, `free`, `meminfo`, `dup2`, `pipe`, `ioctl`,
+`sync`, `time`, and `settime`, returns `EINVAL` with `HL = 0` and carry set.
+
+Success is `A = 0`, carry clear, and the result in `HL`. Failure is `A` set
+to the code, `HL = 0`, and carry set. `exit` does not return. `spawn` returns
+task id 2 and leaves the child pending. `wait` of `FFh` or 2 runs that child.
+The child's `exit` completes the wait with `HL = (2 << 8) | exit_code`.
+`getpid` is 1 for the shell and 2 for the child. A second `spawn` while a
+child is pending or running is `EBUSY`.
+
+`open` for read of a file or a directory takes the lowest free descriptor.
+`read` of a directory is `EISDIR`. `readdir` of a file is `ENOTDIR`. `fstat`
+of a console descriptor is `EINVAL`. `write` of a file or directory
+descriptor is `EROFS` and does not walk a path. `write` of descriptor 0 is
+`EBADF`. Descriptors 1 and 2 write the console. `mkdir`, `remove`, and
+`rename` walk first, then refuse the change with `EROFS` when the name
+resolution would have modified the volume. `remove` of `/` is `EBUSY`.
+
+`seek` takes a file descriptor in `DE`, a pointer to a signed 32-bit
+little-endian offset in `HL`, and a whence in `B`. Whence 0 sets the
+position, 1 adds to the current position, and 2 adds to the file size. Any
+other whence, or a directory or console descriptor, is `EINVAL`. A negative
+result, or a sum that does not fit in a signed 32-bit value, is `EINVAL` and
+leaves the position unchanged. Otherwise the new position is stored and
+written back through `HL`. A position past the file size is legal, and the
+next `read` returns 0.
+
+`chdir` takes an absolute path in `DE`. The walk starts at inode 1. The inode
+must be a directory. The task stores volume 0 at offset 5 and the inode at
+offsets 14 and 15. `getcwd` takes a buffer in `DE` and a size in `HL`. Inode
+1 is `/`. Any other cwd reads directory slot 0 for the parent, finds the
+child's name there, and repeats until the root. A missing name is `EIO`. A
+buffer shorter than the path plus a NUL is `EINVAL` and is left untouched.
+
+`stat` and `fstat` write this 16-byte record:
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 2 | Inode number |
+| 2 | 1 | Inode type with the indirect bit and bit 7 cleared |
+| 3 | 1 | 0 |
+| 4 | 4 | Size, low 3 bytes from the inode, high byte 0 |
+| 8 | 4 | Modified |
+| 12 | 4 | Created |
+
+`readdir` copies one 32-byte directory slot, including `..`. Holes are
+skipped. `HL` is 1 when an entry was stored and 0 at the end. Both are
+success. The slot is inode (2 bytes) then a 30-byte NUL-padded name.
+
+The argv block is `argc`, `envc`, then that many NUL-terminated strings.
+Both counts are 0 to 8. The shell passes `00 00`. The loader copies the block
+to `load + image + bss` and sets `SP` to `load + image + bss + stack + 192`.
 
 ### Error codes
 
@@ -782,7 +859,11 @@ these:
 1. Tooling: assembler setup, `mkreloc`, `c5fs`, stub ROM, headless runner in
    heh8080.
 2. Boot: boot sector, kernel banner, timer, keyboard, console with ANSI subset.
-3. Read-only C5FS, program loader, single-tasking shell.
+3. Read-only C5FS, program loader, single-tasking shell. The shell is the
+   C5X file `/bin/sh`, loaded at page `62h`. Its first write places `sh>` on
+   video row 3 and leaves the cursor on video row 4, column 0. Typed bytes
+   are echoed on that input row. The kernel does not contain a shell. A disk
+   with no `/bin/sh` halts after the banner and does not echo.
 4. Writable C5FS, `fsck`, core commands (`ls cp mv rm mkdir cat more date`),
    a full-screen editor.
 5. Multitasking, virtual consoles, pipes, BREAK handling.

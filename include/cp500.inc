@@ -93,7 +93,73 @@ K_DOWN              equ 1               ; keyboard table only, never a ring byte
 K_LEFT              equ 2
 K_RIGHT             equ 3
 
+VOL                 equ 4062h
+VOL_SIDES           equ VOL + 0
+VOL_SPT             equ VOL + 1
+VOL_BLOCKS          equ VOL + 2
+VOL_ITABLE          equ VOL + 4
+VOL_ICOUNT          equ VOL + 6
+VOL_FIRST           equ VOL + 8
+
+INO_BUF             equ 406Ch
+TASK                equ 408Ch
+SHELL_SAVE          equ 409Ch
+OFILE               equ 40ACh
+SC_IX               equ 40ECh
+SC_IY               equ 40EEh
+CHILD_BASE          equ 40F0h
+CHILD_PAGES         equ 40F1h
+CHILD_ENTRY         equ 40F2h
+CHILD_STATE         equ 40F4h
+ARENA_NEXT          equ 40F5h
+CHILD_FD            equ 40F6h
+
+TASK_ID             equ 0
+TASK_BASE           equ 1
+TASK_PAGES          equ 2
+TASK_SP             equ 3
+TASK_VOL            equ 5               ; cwd volume, always 0
+TASK_FD             equ 6
+TASK_CWD            equ 14              ; cwd inode
+
+OF_KIND             equ 0
+OF_REFS             equ 1
+OF_INO              equ 2
+OF_POS              equ 4
+OF_STRIDE           equ 8
+
+KIND_FREE           equ 0
+KIND_CON_IN         equ 1
+KIND_CON_OUT        equ 2
+KIND_FILE           equ 3
+KIND_DIR            equ 4
+
+CH_NONE             equ 0
+CH_PENDING          equ 1
+CH_RUNNING          equ 2
+
+INO_TYPE            equ 0
+INO_EXTENTS         equ 1
+INO_SIZE            equ 2
+INO_MOD             equ 5
+INO_CREATE          equ 9
+INO_EXT0            equ 13
+INO_RES             equ 31
+INO_KIND_FILE       equ 1
+INO_KIND_DIR        equ 2
+INO_RO              equ 10h
+INO_HIDDEN          equ 20h
+INO_INDIRECT        equ 40h
+
+BLK_BUF             equ 6100h
 ARENA_BASE          equ 6200h
+ARENA_FIRST         equ 62h
+ARENA_BYTES         equ 40448
+KERNEL_RESERVE      equ 192
+PATH_MAX            equ 127
+ARGV_MAX            equ 128
+FD_SLOTS            equ 8
+OFILE_SLOTS         equ 8
 
 ; ------------------------------------------------------------ interrupts E0h-E7h
 
@@ -214,5 +280,64 @@ PRN_FAULT           equ 1 << PRN_FAULT_BIT
 PRN_SELECT          equ 1 << PRN_SELECT_BIT
 PRN_PAPER_OUT       equ 1 << PRN_PAPER_OUT_BIT
 PRN_BUSY            equ 1 << PRN_BUSY_BIT
+
+; --------------------------------------------------------------- syscalls
+
+SYS_EXIT            equ 00h
+SYS_SPAWN           equ 01h
+SYS_WAIT            equ 02h
+SYS_GETPID          equ 03h
+SYS_YIELD           equ 04h
+SYS_SLEEP           equ 05h
+SYS_KILL            equ 06h
+SYS_UPTIME          equ 07h
+SYS_ALLOC           equ 10h
+SYS_FREE            equ 11h
+SYS_MEMINFO         equ 12h
+SYS_OPEN            equ 20h
+SYS_CLOSE           equ 21h
+SYS_READ            equ 22h
+SYS_WRITE           equ 23h
+SYS_SEEK            equ 24h
+SYS_STAT            equ 25h
+SYS_FSTAT           equ 26h
+SYS_READDIR         equ 27h
+SYS_MKDIR           equ 28h
+SYS_REMOVE          equ 29h
+SYS_RENAME          equ 2Ah
+SYS_CHDIR           equ 2Bh
+SYS_GETCWD          equ 2Ch
+SYS_DUP2            equ 2Dh
+SYS_PIPE            equ 2Eh
+SYS_IOCTL           equ 2Fh
+SYS_SYNC            equ 30h
+SYS_TIME            equ 40h
+SYS_SETTIME         equ 41h
+
+O_READ              equ 01h
+O_WRITE             equ 02h
+O_CREATE            equ 04h
+O_TRUNC             equ 08h
+O_APPEND            equ 10h
+O_EXCL              equ 20h
+
+ENOENT              equ 1
+EEXIST              equ 2
+ENOMEM              equ 3
+EBADF               equ 4
+EINVAL              equ 5
+ENOSPC              equ 6
+EIO                 equ 7
+ENOTDIR             equ 8
+EISDIR              equ 9
+ENOEXEC             equ 10
+EMFILE              equ 11
+ECHILD              equ 12
+EROFS               equ 13
+ENOTEMPTY           equ 14
+EBUSY               equ 15
+EAGAIN              equ 16
+ECHANGED            equ 17
+ENODEV              equ 18
 
     endif
