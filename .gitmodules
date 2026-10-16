@@ -1,0 +1,4 @@
+[submodule "external/heh8080"]
+	path = external/heh8080
+	url = https://github.com/fredimachado/heh8080.git
+	branch = cp500-headless-runner

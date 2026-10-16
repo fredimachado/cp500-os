@@ -14,7 +14,7 @@ public sealed class AssemblerRelocationTests : IDisposable
     {
         var program = BuildWithMkReloc();
 
-        Assert.Equal(Z80Fixtures.Read("reloc-sample-6200.bin"), program.RelocateTo(0x62));
+        Assert.Equal(RepoPaths.ReadZ80Output("reloc-sample-6200.bin"), program.RelocateTo(0x62));
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public sealed class AssemblerRelocationTests : IDisposable
         using var stderr = new StringWriter();
 
         int exitCode = MkRelocCommand.Run(
-            [Z80Fixtures.PathOf("reloc-sample-0000.bin"), Z80Fixtures.PathOf("reloc-sample-0100.bin"), "-o", output],
+            [RepoPaths.Z80Output("reloc-sample-0000.bin"), RepoPaths.Z80Output("reloc-sample-0100.bin"), "-o", output],
             stdout,
             stderr);
 
