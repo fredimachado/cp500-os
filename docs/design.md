@@ -308,20 +308,43 @@ keeps both the table and the loader small (the approach CP/M 3 uses for PRL
 files).
 
 ```text
-offset  size  field
-0       4     magic "C5X", version 1
-4       2     image size (code + initialized data)
-6       2     bss size
-8       2     stack size (the loader adds the 192-byte kernel reserve)
-10      2     entry offset
-12      4     reserved
-16      n     image
-16+n    n/8   relocation bitmap: bit i set means image byte i is the high
-              byte of an absolute address
+offset  size        field
+0       4           magic "C5X" (43h 35h 58h), version byte 01h
+4       2           image size n (code + initialized data)
+6       2           bss size
+8       2           stack size (the loader adds the 192-byte kernel reserve)
+10      2           entry offset
+12      4           reserved, must be 00h
+16      n           image, linked at 0000h
+16+n    ceil(n/8)   relocation bitmap: bit i set means image byte i is the
+                    high byte of an absolute address
 ```
 
+All fields are little-endian. The file is exactly `16 + n + ceil(n/8)`
+bytes. Bit `i` of the bitmap is bit `i % 8` (least significant first) of
+bitmap byte `i / 8`, and bits past `n` in the last byte are zero. Readers
+reject a wrong magic or version, nonzero reserved bytes, a short or long file
+and set padding bits, so a future version can give them meaning.
+
 The build computes the bitmap toolchain-independently: link the program at
-`0000h` and at `0100h` and mark every byte that differs by exactly 1.
+`0000h` and at `0100h` and mark every byte that is exactly 1 higher (mod 256)
+in the second link. A byte that changes by anything else means the code is not
+page-relocatable (for example it uses the low byte of an address, or
+`addr + 80h` arithmetic that carries differently), and the build fails with
+the offending offsets.
+
+Relocating to page `p` (load address `p * 256`) adds `p` mod 256 to every
+marked byte and touches nothing else. `Relocator.Relocate` in `Cp500Os.C5x`
+is that exact algorithm and is the oracle the kernel loader tests compare
+against.
+
+A valid header has `entry offset < image size` (so the image is never empty)
+and `image + bss + stack + 192` at most 40,448 bytes, the 158-page arena.
+
+`mkreloc <link0000.bin> <link0100.bin> -o <out.c5x> [--bss n] [--stack n]
+[--entry n]` writes the file; numbers are decimal or `0x` hex, and the
+defaults are bss 0, stack 256 and entry 0. `mkreloc --info <file.c5x>` prints
+the header, relocation count and the memory the loader will allocate.
 
 At `spawn` the kernel allocates one block for image, bss and stack, relocates
 it, copies argv and the environment just below the stack, and starts the task
@@ -508,6 +531,87 @@ it gives network access with only a serial driver.
   ROM that implements only the contract in section 2 (boot sector load,
   restart jumps, NMI dispatch). The real ROM is used for manual and
   local tests.
+
+### Build layout
+
+- Z80 sources are assembled by sjasmplus 1.24.0 (`eng/install-sjasmplus.ps1`)
+  through `eng/Z80.targets`, imported by `Microsoft.Build.NoTargets` projects
+  that are part of `cp500-os.slnx`. Binaries, listings and symbol files go to
+  `build/z80/`.
+- `include/cp500.inc` holds the hardware equates shared by the stub ROM, the
+  boot sector and the kernel: memory map, system page entry points, and every
+  port with its bit names (`E0h`, `E4h`, `ECh`, `F0h-F3h`, `F4h`, `F8h`). The
+  names and bit meanings follow heh8080's CP-500 devices.
+- `rom/stub.asm` builds `build/z80/stub.rom`.
+- `tests/fixtures/z80/` holds Z80 programs the tests assemble:
+  `hello-boot.asm` (`build/z80/hello-boot.bin`) is a boot sector that writes
+  `BOOT OK` to the top-left of the screen and spins with interrupts disabled;
+  an assert fails the build if it outgrows 256 bytes. `reloc-sample.asm` is
+  assembled at `0000h`, `0100h` and `6200h`; a test runs `mkreloc` on the
+  first two and checks that relocating to page `62h` reproduces the third
+  byte for byte.
+
+### Stub ROM
+
+`build/z80/stub.rom` is exactly 14 KiB (`0000h-37FFh`); unused bytes are
+`FFh`.
+
+| Address | Content |
+|---------|---------|
+| `0000h` | `DI`, `JP boot` |
+| `0008h`-`0030h` | `JP 4000h`, `JP 4003h`, ..., `JP 400Fh` |
+| `0038h` | `JP 4012h` |
+| `0066h` | `JP 4049h` |
+
+Boot, with interrupts disabled throughout:
+
+1. `IM 1`, `SP = 4200h` (the boot stack page). Write `00h` to `E0h` and
+   `E4h`: the timer IRQ is enabled at power-on, and `DI` does not stop NMI.
+2. Select drive 0 in MFM (`F4h = 81h`), force-interrupt the FDC (`D0h`).
+3. Restore (`0Bh`: head load, 30 ms steps) and wait for not-busy. Not ready
+   or no track 0 is an error.
+4. Read sector 1 (`80h`, track register already 0) into `4300h` by polling
+   status: DRQ moves one byte with `INI`; busy clearing early is an error.
+5. Wait for not-busy; any of not ready, record not found, CRC error or lost
+   data (`9Ch`) is an error. Otherwise `JP 4300h`.
+
+Every command write is followed by about 100 us before status is read, since
+the WD1791 status is not valid for up to 56 us (FM). Every wait is bounded:
+about 2 s for the sector (more than the five revolutions after which the
+WD1791 reports record not found) and about 4.5 s for the restore (more than 40
+steps at 30 ms). Waits reselect the drive, which retriggers the Model III
+motor-on one-shot.
+
+On failure the stub fills video RAM with spaces, writes one of these to the
+top line and halts with interrupts disabled:
+
+| Message | Meaning (last byte is the WD1791 status in hex) |
+|---------|------------------------------------------------|
+| `STUB ROM: RESTORE ERROR xx` | Drive not ready or not at track 0 after restore. heh8080 shows `A4` for an empty drive, `A0` with no drives installed |
+| `STUB ROM: RESTORE TIMEOUT xx` | FDC still busy after the restore wait |
+| `STUB ROM: READ ERROR xx` | Read failed: `10` record not found, `08` CRC, `04` lost data, `80` not ready |
+| `STUB ROM: READ TIMEOUT xx` | No data or completion within the sector wait |
+
+Differences from the real ROM. The boot sector must not depend on any of
+these:
+
+- The NMI vector jumps straight to `4049h`. The real ROM's `3039h` first
+  checks `E4h` bit 5 and reboots while the reset button is held.
+- No screen clear, logo, BREAK check, index-pulse wait (the real ROM waits
+  for five index pulses to see that a disk spins) or `Diskette?` retry loop.
+  Without a disk the stub stops with an error instead.
+- The sector is read by polling, not with WAIT and the FDC NMI. That is
+  exact in heh8080, whose controller has no byte deadline by default, but
+  the 59 T-state polled byte loop is not guaranteed to keep up with MFM
+  (about 65 T-states per byte) on real hardware. The stub is for the
+  emulator only.
+- At `4300h` the state differs: the real ROM leaves `SP` near `407Dh`,
+  `E0h = 04h` (timer IRQ enabled but `DI`), `RETN` at `4049h`, its own data in
+  `4000h-404Bh` and `41E5h-4224h`, and the video control latch at `ECh`
+  written. The stub leaves `SP = 4200h`, both interrupt masks at `00h`, and
+  does not touch RAM below `4300h` or `ECh`.
+  The boot sector must set its own stack and must not use `RST`, the system
+  page or the interrupt masks before it has set them up.
 
 ## 11. Milestones
 

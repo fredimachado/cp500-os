@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/rom/">
+    <Project Path="rom/Cp500Os.StubRom.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/Cp500Os.C5fs/Cp500Os.C5fs.csproj" />
     <Project Path="src/Cp500Os.C5x/Cp500Os.C5x.csproj" />
@@ -6,6 +9,9 @@
   <Folder Name="/tests/">
     <Project Path="tests/Cp500Os.C5fs.Tests/Cp500Os.C5fs.Tests.csproj" />
     <Project Path="tests/Cp500Os.C5x.Tests/Cp500Os.C5x.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/fixtures/">
+    <Project Path="tests/fixtures/z80/Cp500Os.Fixtures.Z80.proj" Type="13b669be-bb05-4ddf-9536-439f39a36129" />
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/Cp500Os.C5fs.Cli/Cp500Os.C5fs.Cli.csproj" />
