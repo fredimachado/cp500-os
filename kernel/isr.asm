@@ -39,12 +39,12 @@ isr_due:
                 ld a, (hl)
                 or a
                 jr z, isr_switch
-                call t_state
                 ld a, (CUR)
                 or a
                 jr z, isr_switch
+                call t_state_a
                 ld a, (hl)
-                cp TS_READY
+                dec a
                 jr z, isr_return
 isr_switch:
                 push ix

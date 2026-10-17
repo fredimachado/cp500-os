@@ -1,5 +1,16 @@
 ; Boot and task 0 support. Shares the first kernel block with the loader.
 
+; Copied to SYSPAGE. RST 10h-30h return at once.
+sys_vectors:
+                jp syscall
+                db 0C9h, 0, 0
+                db 0C9h, 0, 0
+                db 0C9h, 0, 0
+                db 0C9h, 0, 0
+                db 0C9h, 0, 0
+                jp isr
+                assert $ - sys_vectors == SYS_ISR + 3 - SYSPAGE
+
 nmi:
                 retn
 

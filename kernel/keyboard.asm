@@ -182,8 +182,43 @@ kbd_not_clear:
                 jr z, kbd_break
                 ld a, e
                 cp K_CLEAR
+                jr z, kbd_after_clear
+                bit 0, (hl)
                 ld a, c
                 jp nz, kbd_put
+                ld a, e
+                cp DEAD_ACUTE
+                jr z, kbd_compose
+                ld a, c
+                cp DEAD_ACUTE
+                jp nz, kbd_put
+                ld (KBD_PREFIX), a
+                scf
+                ret
+
+; C = the key after DEAD_ACUTE. A key with no composition comes after the acute.
+kbd_compose:
+                ld a, c
+                ld hl, ACUTE_FROM
+                ld b, ACUTE_TO - ACUTE_FROM
+kbd_find:
+                cp (hl)
+                jr z, kbd_found
+                inc l
+                djnz kbd_find
+                ld a, DEAD_ACUTE
+                call kbd_put
+                ld a, c
+                jp kbd_put
+kbd_found:
+                ld a, l
+                add a, ACUTE_TO - ACUTE_FROM
+                ld l, a
+                ld a, (hl)
+                jp kbd_put
+
+kbd_after_clear:
+                ld a, c
                 sub '1'
                 cp NCON
                 ld a, c

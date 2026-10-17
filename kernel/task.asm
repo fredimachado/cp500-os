@@ -405,7 +405,7 @@ exit_done:
 ; Only task 1, console 0's shell, and console 1's shells have init as parent.
 exit_shell:
                 ld (CON_STATE + 1), a
-                jp sched_pick
+                jr exit_done
 exit_halt:
                 di
                 halt

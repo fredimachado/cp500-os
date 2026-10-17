@@ -129,6 +129,10 @@ CON_MODE            equ 40E6h           ; CON_FG + 2
 KEYMAP              equ 0F000h          ; /sys/keymap: unshifted and shifted 8x8 tables
 KBD_UNSHIFTED       equ KEYMAP
 KBD_SHIFTED         equ KEYMAP + 64
+ACUTE_FROM          equ KEYMAP + 128    ; 14 keys that compose after DEAD_ACUTE
+ACUTE_TO            equ KEYMAP + 142    ; their ISO-8859-1 results
+LAT1_GLYPH          equ KEYMAP + 156    ; video code for C0h-FFh
+DEAD_ACUTE          equ 27h
 SHADOW1             equ 0F100h          ; console 1's hidden screen
 KPAGE               equ 0F500h
 OWNER               equ KPAGE           ; owner of page ARENA_FIRST + i: 0 free, slot, 0FFh kernel

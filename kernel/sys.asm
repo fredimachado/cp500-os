@@ -1,20 +1,11 @@
 ; System page jumps. The ROM enters here with interrupts still disabled.
 
 sys_init:
+                ld hl, sys_vectors
+                ld de, SYSPAGE
+                ld bc, SYS_ISR + 3 - SYSPAGE
+                ldir
                 ld a, 0C3h
-                ld (SYS_RST08), a
-                ld hl, syscall
-                ld (SYS_RST08 + 1), hl
-                ld a, 0C9h
-                ld (SYS_RST10), a
-                ld (SYS_RST18), a
-                ld (SYS_RST20), a
-                ld (SYS_RST28), a
-                ld (SYS_RST30), a
-                ld a, 0C3h
-                ld (SYS_ISR), a
-                ld hl, isr
-                ld (SYS_ISR + 1), hl
                 ld (SYS_NMI), a
                 ld hl, nmi
                 ld (SYS_NMI + 1), hl
@@ -145,12 +136,12 @@ syscall_exit:
                 ld a, (QUANTUM)
                 or a
                 jp z, sched_save
-                call t_state
                 ld a, (CUR)
                 or a
                 jp z, sched_save
+                call t_state_a
                 ld a, (hl)
-                cp TS_READY
+                dec a
                 jp nz, sched_save
                 xor a
                 ld (KBUSY), a
@@ -173,31 +164,16 @@ sc_table:
 
 ; HL = resident routine. It returns carry and A, or a result in HL.
 wr_go:
-                ld a, (wr_ready)
-                or a
-                jr z, wr_down
-                push hl
-                ld hl, wr_back
-                ex (sp), hl
-                jp (hl)
-wr_back:
+                call wr_go_keep
                 jp c, syscall_err
                 jp syscall_ok
-wr_down:
-                ld a, EIO
-                jp syscall_err
 
 ; Like wr_go, but return to the caller so open can allocate a descriptor.
 wr_go_keep:
                 ld a, (wr_ready)
                 or a
                 jr z, wr_keep_down
-                push hl
-                ld hl, wr_keep_back
-                ex (sp), hl
                 jp (hl)
-wr_keep_back:
-                ret
 wr_keep_down:
                 ld a, EIO
                 scf

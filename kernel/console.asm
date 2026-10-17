@@ -41,6 +41,13 @@ con_ground:
                 jr z, con_bs
                 cp 20h
                 jr c, con_leave
+                sub 0C0h
+                jr c, con_glyph
+                add a, LAT1_GLYPH & 0FFh
+                ld l, a
+                ld h, LAT1_GLYPH >> 8
+                ld c, (hl)
+con_glyph:
                 call con_restore
                 call con_addr
                 ld (hl), c
