@@ -159,19 +159,18 @@ blocking. If task 1 (the first shell) exits, the machine halts.
 
 `4012h` jumps to the interrupt service routine, which:
 
-1. Pushes the full register set on the current stack.
-2. Reads `E0h` to find the source, reads `ECh` to acknowledge the timer.
-3. Advances the tick counter and wakes sleepers whose time has come.
-4. Scans the keyboard matrix (debounce, repeat, ring buffer).
-5. Switches tasks when the quantum is zero and the kernel is not in a system call.
-6. Pops the registers, `EI`, `RETI`.
+1. Pushes `AF`, `BC`, `DE`, and `HL`.
+2. Reads `ECh` to acknowledge the timer.
+3. Advances the tick counter. If the keyboard ring is not empty, it wakes tasks blocked on keyboard input. `sleep` is not implemented.
+4. Scans the keyboard and blinks the cursor.
+5. If the quantum is already zero and the kernel is not inside a system call, it pushes the rest of the registers and switches. A tick during a system call only counts the quantum down.
+6. Otherwise it pops `AF`, `BC`, `DE`, and `HL`, enables interrupts, and returns with `RETI`.
 
 ### Keyboard
 
 Scanned every tick. A key must read the same in two consecutive scans to
 count, which gives up to 66 ms of latency, comparable to the ROM. Repeat starts
-after 15 ticks (0.5 s) and runs at one key every 3 ticks. Keys go into a
-32-entry ring buffer per active console. The scan tables and composition rules
+after 15 ticks (0.5 s) and runs at one key every 3 ticks. Keys go into one 32-byte ring at `4026h`. A console switch empties that ring. The scan tables and composition rules
 come from `/sys/keymap` at `F000h`. Table byte `00h` means no key. The acute
 dead key (`27h`) composes ISO-8859-1 letters listed in the map. If the next
 key does not compose, the acute is delivered and then the key. CLEAR plus a
