@@ -1,6 +1,6 @@
 # cp500-os Design
 
-Status: milestone 2 is implemented. Numbers marked "budget" are targets to
+Status: milestone 5 is implemented. Numbers marked "budget" are targets to
 measure against, not facts. Addresses, escape sequences and the keyboard map
 below are the ones the kernel uses.
 
@@ -64,8 +64,12 @@ guaranteed on real hardware.
 3C00-3FFF  video RAM (64x16)
 4000-40FF  system page
 4100-41FF  boot and idle stack
-4200-61FF  kernel code and static data (8 KiB budget)
-6200-FFFF  arena: 158 pages of 256 bytes (39.5 KiB)
+4200-60FF  kernel code and read-only data in the disk image (8 KiB budget)
+6100-61FF  sector buffer in the image (zeroed; BLK_BUF at runtime)
+6200-EFFF  arena pages for programs and pipes (pages 62h-0EFh)
+F000-F0FF  copy of /sys/keymap (keyboard tables and Latin-1 glyphs)
+F100-F4FF  console 1 shadow screen and other fixed RAM below KPAGE
+F500-FFFF  KPAGE (page owners, task records, open files) and /sys/wr
 ```
 
 System page (`4000h-40FFh`):
@@ -89,61 +93,65 @@ the full 16-bit start.
 
 ### Arena
 
-All dynamic memory comes from the arena in 256-byte pages. A page owner table
-(158 bytes, one per page) records `00h` free, `FFh` kernel, or the owning task
-id, so everything a task owned is freed when it exits.
+All dynamic memory comes from arena pages `62h` through `0EFh`. A page owner
+table at `KPAGE` records `00h` free, `FFh` kernel, or the owning task id, so
+everything a task owned is freed when it exits. Pages from `F000h` upward hold
+`/sys/keymap`, the second console shadow, kernel RAM and `/sys/wr`. Programs
+and pipes never use those pages.
 
 - Programs and their stacks are allocated from the bottom up, first fit.
-- Kernel buffers (disk cache, console shadow screens, pipes) are allocated from
-  the top down. This keeps long-lived kernel data from fragmenting the space
-  programs load into.
+- Pipes take one arena page each from the same pool.
 - There is no compaction: without an MMU, absolute pointers cannot be moved.
 
-Budget at boot with two virtual consoles: disk cache 7 pages, one inactive
-console shadow 4 pages, leaving about 36 KiB for programs.
+At mount the kernel copies `/sys/keymap` to `F000h` and `/sys/wr` to `F800h`.
+The banner prints only after both files load, so keys typed at the banner use
+the same map as the shell.
 
 ## 4. Tasks and scheduling
 
-- Up to 8 tasks. Task 0 is the idle task: `HALT` until the next interrupt.
-- Round-robin, quantum of 2 ticks (66 ms). A task that blocks gives up the rest
-  of its quantum.
-- The kernel is not preemptive. A tick that arrives during a system call only
-  sets a reschedule flag, honored when the call returns to user code. This
-  avoids locks inside the kernel.
+- Eight task slots. Task 0 is init: it spawns a shell for each console that
+  needs one, otherwise `HALT` until the next interrupt.
+- Round-robin among runnable tasks, quantum of 2 ticks (66 ms). `yield` forces
+  an immediate reschedule by zeroing the quantum.
+- Preemption is deferred inside the kernel. While `KBUSY` is set during a system
+  call, the timer only decrements the quantum. When the quantum reaches zero on
+  return to user code, the kernel switches tasks. A blocked call saves a frame
+  that points back at its own `RST 08h` and reruns the call when woken, so the
+  kernel holds no I/O state across a block.
 - A context switch pushes `AF BC DE HL IX IY AF' BC' DE' HL'` on the current
-  task's stack and saves `SP` in the task table.
+  task's stack and saves `SP` in the live task record at `T_LIVE`.
 - Kernel code runs on the calling task's stack. Every task stack must reserve
   192 bytes for the kernel and interrupt frames on top of its own needs. The
   loader adds this automatically.
 
-Task table entry (32 bytes):
+Per-slot state lives in the system page and `KPAGE`:
 
-| Field | Size | Meaning |
-|-------|------|---------|
-| state | 1 | free, ready, blocked, zombie |
-| saved SP | 2 | |
-| wait channel | 2 | What a blocked task waits for |
-| wake tick | 2 | For `sleep` and timeouts |
-| parent | 1 | Task id |
-| console | 1 | Controlling console |
-| exit code | 1 | Valid when zombie |
-| cwd | 3 | Volume id + inode |
-| fd table | 8 | Index into the open-file table per descriptor, `FFh` unused |
-| program base | 1 | First arena page |
-| reserved | 10 | |
+| Location | Size | Meaning |
+|----------|------|---------|
+| `T_STATE` | 1 per slot | free, ready, blocked, dying, zombie |
+| `T_CHAN` | 1 per slot | Wait channel when blocked |
+| `T_PARENT` | 1 per slot | Parent task id |
+| `T_ARG` | 2 per slot | Exit code in the low byte when zombie |
+| `T_LIVE` record | 16 bytes | Saved `SP`, arena base, page count, cwd, fd table |
+
+Open files and pipe metadata sit in `KPAGE` outside the disk image.
 
 ### Processes are spawned, not forked
 
 `fork` would need to copy a program and fix up its pointers, which is
 impossible without an MMU. `spawn` loads a new program, sets up its arguments,
-environment and file descriptors, and makes it ready, like `posix_spawn`. A
-shell runs `a | b > f` as two spawns with a pipe and a redirection.
+environment and file descriptors, and makes it ready, like `posix_spawn`. The
+CP-500 keyboard has no `|` key, so the shell runs pipelines as `a ! b` with
+two spawns and a pipe (`a`'s stdout and `b`'s stdin on the pipe ends). The
+`?` prefix spawns a background child without waiting.
 
 ### Break
 
-BREAK on the active console terminates the console's foreground task, unless
-that console is in raw mode, where BREAK is delivered as a key code. The shell
-sets the foreground task with an `ioctl` before waiting for a child.
+BREAK on the active console ends the foreground task with exit code `0FFh`,
+unless that console is in raw mode, where BREAK is delivered as key `03h`. The
+shell sets the foreground task with `ioctl` request `01h` before `wait`, and
+calls `wait` with `FEh` at the prompt to reap background zombies without
+blocking. If task 1 (the first shell) exits, the machine halts.
 
 ## 5. Interrupts and drivers
 
@@ -155,7 +163,7 @@ sets the foreground task with an `ioctl` before waiting for a child.
 2. Reads `E0h` to find the source, reads `ECh` to acknowledge the timer.
 3. Advances the tick counter and wakes sleepers whose time has come.
 4. Scans the keyboard matrix (debounce, repeat, ring buffer).
-5. Switches tasks if the quantum ran out and the kernel is not busy.
+5. Switches tasks when the quantum is zero and the kernel is not in a system call.
 6. Pops the registers, `EI`, `RETI`.
 
 ### Keyboard
@@ -163,8 +171,11 @@ sets the foreground task with an `ioctl` before waiting for a child.
 Scanned every tick. A key must read the same in two consecutive scans to
 count, which gives up to 66 ms of latency, comparable to the ROM. Repeat starts
 after 15 ticks (0.5 s) and runs at one key every 3 ticks. Keys go into a
-32-entry ring buffer per active console. Dead keys compose accents (`'` + `a`
-gives `á`). CLEAR plus a digit switches virtual consoles.
+32-entry ring buffer per active console. The scan tables and composition rules
+come from `/sys/keymap` at `F000h`. Table byte `00h` means no key. The acute
+dead key (`27h`) composes ISO-8859-1 letters listed in the map. If the next
+key does not compose, the acute is delivered and then the key. CLEAR plus a
+digit switches virtual consoles.
 
 Milestone 2 pins the scan in the system page. `4015h` is the 4-byte
 little-endian tick count. The ring is 32 bytes at `4026h`, with the head at
@@ -177,9 +188,10 @@ Row `n` is the byte at `3800h` with address bit `n` set (`3801h` is `@` and
 A-G). Unshifted letters are lowercase, so a typed `Hi` is `Hi`. SHIFT is row 7
 bit 0 and changes the glyph. ENTER is `0Dh` and moves to column 0 of the next
 row. BREAK, CLEAR and SHIFT alone are dropped. UP is the `[` key. DOWN, LEFT
-and RIGHT are delivered as `ESC [ B`, `ESC [ D` and `ESC [ C`. Dead keys and
-Portuguese glyph mapping are not in this milestone. A `--type` hold is about
-three ticks, so it cannot reach the repeat delay.
+and RIGHT are delivered as `ESC [ B`, `ESC [ D` and `ESC [ C`. Bytes from
+`C0h` through `FFh` map to video codes through the `LAT1_GLYPH` table in
+`/sys/keymap`. A `--type` hold is about three ticks, so it cannot reach the
+repeat delay.
 
 ### Console
 
@@ -195,11 +207,10 @@ three ticks, so it cannot reach the repeat delay.
   the cursor, 1 through the cursor, 2 the whole screen or line; a missing
   count is 0). An unknown sequence is discarded. The cursor is the `BFh`
   block, saved and restored around blinks. Console state is `4054h`-`4061h`.
-- Text is ISO-8859-1. The console maps accented letters onto the CP-500's
-  Portuguese glyphs at `00h-1Fh` and falls back to the base letter where no
-  glyph exists. The exact table comes from the character generator dump.
-- Raw glyph mode (`ioctl`) writes bytes straight to video RAM codes, for block
-  graphics and katakana.
+- Text is ISO-8859-1. The console maps bytes through `LAT1_GLYPH` in
+  `/sys/keymap`, then writes the resulting video code.
+- Raw mode (console `ioctl` request `02h`, bit 0) disables dead-key composition
+  and delivers BREAK as key `03h` instead of killing the foreground task.
 - The cursor is drawn in software by blinking a block on the tick.
 - Default: 2 consoles. A shell is started on a console the first time it is
   shown, not at boot, to save memory.
@@ -337,20 +348,23 @@ Time:
 Limits: 8 descriptors per task, 16 open files system-wide, 4 pipes of 256 bytes
 each, paths up to 127 bytes.
 
-### Milestone 3 calls
+### Implemented calls (through milestone 5)
 
-The kernel implements `exit`, `spawn`, `wait`, `getpid`, `open`, `close`,
-`read`, `write`, `seek`, `stat`, `fstat`, `readdir`, `mkdir`, `remove`,
-`rename`, `chdir`, and `getcwd`. Every other `C`, including `yield`, `sleep`,
-`kill`, `uptime`, `alloc`, `free`, `meminfo`, `dup2`, `pipe`, `ioctl`,
-`sync`, `time`, and `settime`, returns `EINVAL` with `HL = 0` and carry set.
+The kernel implements `exit`, `spawn`, `wait`, `getpid`, `yield`, `kill`,
+`open`, `close`, `read`, `write`, `seek`, `stat`, `fstat`, `readdir`,
+`mkdir`, `remove`, `rename`, `chdir`, `getcwd`, `pipe`, `ioctl`, `sync`,
+`time`, and `settime`. Calls that are not implemented, including `sleep`,
+`uptime`, `alloc`, `free`, `meminfo`, `dup2`, and `poll`, return `EINVAL`
+with `HL = 0` and carry set.
 
 Success is `A = 0`, carry clear, and the result in `HL`. Failure is `A` set
-to the code, `HL = 0`, and carry set. `exit` does not return. `spawn` returns
-task id 2 and leaves the child pending. `wait` of `FFh` or 2 runs that child.
-The child's `exit` completes the wait with `HL = (2 << 8) | exit_code`.
-`getpid` is 1 for the shell and 2 for the child. A second `spawn` while a
-child is pending or running is `EBUSY`.
+to the code, `HL = 0`, and carry set. `exit` does not return. `spawn` uses
+the lowest free slot among tasks 1-7 and returns its task id. With no free
+slot it returns `EAGAIN`. A pending or running child does not make the next
+`spawn` `EBUSY`. `wait` with `DE = FFh` waits for any child. `DE = FEh`
+reaps one zombie without blocking and returns `ECHILD` when none are ready.
+A specific child id waits only for that task. The result is
+`HL = (task_id << 8) | exit_code`.
 
 `open` for read of a file or a directory takes the lowest free descriptor.
 `read` of a directory is `EISDIR`. `readdir` of a file is `ENOTDIR`. `fstat`
@@ -397,6 +411,10 @@ to `load + image + bss` and sets `SP` to `load + image + bss + stack + 192`.
 
 ### Character devices
 
+Milestone 5 still wires stdin, stdout and stderr to the task's console through
+descriptors 0-2. Paths under `/dev/` are not opened yet. The table below is
+the target layout.
+
 Paths under `/dev/` name devices, not files. The kernel resolves them from a
 fixed table before any file system walk, and they appear in no directory.
 
@@ -413,11 +431,9 @@ share the device.
 
 Reads and writes on character devices (console, serial, pipes):
 
-- `read` blocks until at least one byte is available, then returns what is
-  available, up to the length. It does not wait to fill the buffer. The
-  milestone 4 kernel waits for the full length on the console; milestone 5
-  switches to this rule. Programs that read one byte at a time see no
-  difference.
+- On the console, `read` blocks until it has stored the requested byte count
+  (the shell reads one byte at a time). Pipe reads return what is available up
+  to the length and block when the pipe is empty while a writer still exists.
 - `read` returns 0 only at end of file: a pipe whose writers have all closed,
   or `/dev/ser0` after a hangup (section 9).
 - `write` blocks until every byte is queued. Queued is not sent: serial output
@@ -476,9 +492,15 @@ non-blocking until `EAGAIN`.
 
 ### ioctl requests
 
-`ioctl` takes the request in `HL`. `IX` is a value or a pointer, as the table
-says. The high byte of the request is the device class. An unknown request,
-or one for another class, is `EINVAL`.
+Milestone 5 implements `ioctl` only on console descriptors 0-2. The request
+is the low byte in `HL`: `01h` sets the foreground task (`IX` = task id,
+`0` none) and returns the previous id in `HL`; `02h` sets the console mode
+(`IX` = mode bits, only bit 0 raw is defined) and returns the previous mode.
+Any other request is `EINVAL`.
+
+The table below is the full target. `ioctl` takes the request in `HL`. `IX`
+is a value or a pointer, as the table says. The high byte of the request is
+the device class. An unknown request, or one for another class, is `EINVAL`.
 
 | Request | Name | Applies to | `IX` | Result `HL` |
 |---------|------|------------|------|-------------|
@@ -1121,8 +1143,11 @@ these:
    with no `/bin/sh` halts after the banner and does not echo.
 4. Writable C5FS, `fsck`, core commands (`ls cp mv rm mkdir cat more date`),
    a full-screen editor.
-5. Multitasking, virtual consoles, pipes, BREAK handling, `/dev/con`,
-   non-blocking descriptors, `poll`, the generic and console ioctls.
+5. Preemptive scheduling (eight tasks, quantum 2 ticks), `spawn`, `wait`,
+   `yield`, `kill`, pipes, two virtual consoles (CLEAR plus a digit), cooked
+   and raw BREAK, console `ioctl` (`01h` foreground, `02h` mode), zombie reap
+   at the prompt, `/sys/keymap` with acute dead keys and Latin-1 glyphs, shell
+   pipelines as `a ! b` and background `? cmd`.
 6. Serial driver and modem bridge (heh8080 expansion), terminal program.
 7. Virtual hard disk, partitions, clock.
 8. W5100 network driver, sockets, `telnet`, `get` (HTTP), time sync.
