@@ -1203,69 +1203,81 @@ walk_fold_add:
                 add a, 20h
                 ret
 
-mt_flag:        db 0
-mt_seq:         ds 4, 0
-mt_spt:         db 0
-mt_sides:       db 0
-mt_blocks:      dw 0
-mt_icount:      dw 0
-mt_itable:      dw 0
-mt_first:       dw 0
-fs_sum:         dw 0
-fs_log:         dw 0
-fs_dst:         dw 0
-fs_len:         dw 0
-fs_got:         dw 0
-fs_acc:         ds 4, 0
-fs_within:      db 0
-fs_scan:        db 0
-fs_canon:       db 0
-fs_mode:        db 0
-fs_namel:       db 0
-fs_namep:       dw 0
-fs_ptr:         dw 0
-fs_ino:         dw 0
-fs_islast:      db 0
-vol_sb:         db 1
-vol_dirty:      db 0
-vol_kstart:     dw 0
-vol_kcount:     dw 0
-clk_base:       ds 4, 0
-clk_tick:       ds 4, 0
-wr_ready:       db 0
-wr_child:       dw 0
+                kvar mt_flag, 1
+                kvar mt_seq, 4
+                kvar mt_spt, 1
+                kvar mt_sides, 1
+                kvar mt_blocks, 2
+                kvar mt_icount, 2
+                kvar mt_itable, 2
+                kvar mt_first, 2
+                kvar fs_sum, 2
+                kvar fs_log, 2
+                kvar fs_dst, 2
+                kvar fs_len, 2
+                kvar fs_got, 2
+                kvar fs_acc, 4
+                kvar fs_within, 1
+                kvar fs_scan, 1
+                kvar fs_canon, 1
+                kvar fs_mode, 1
+                kvar fs_namel, 1
+                kvar fs_namep, 2
+                kvar fs_ptr, 2
+                kvar fs_ino, 2
+                kvar fs_islast, 1
+                kvar vol_sb, 1
+                kvar vol_dirty, 1
+                kvar vol_kstart, 2
+                kvar vol_kcount, 2
+                kvar clk_base, 4
+                kvar clk_tick, 4
+                kvar wr_ready, 1
+                kvar wr_child, 2
 
 wr_path:        db "/sys/wr", 0
+keymap_path:    db "/sys/keymap", 0
 
-; Copies /sys/wr to WR_BASE. A missing file leaves writes returning EIO.
-load_wr:
+; Copies /sys/wr to WR_BASE and /sys/keymap to KEYMAP. Without /sys/wr writes
+; return EIO; without /sys/keymap every key reads as no key.
+load_sys:
                 ld de, wr_path
+                ld hl, WR_BASE
+                ld b, 8
+                call load_file
+                jr c, load_keymap
+                ld a, 1
+                ld (wr_ready), a
+load_keymap:
+                ld de, keymap_path
+                ld hl, KEYMAP
+                ld b, 1
+; DE = path, HL = destination, B = pages it may fill. Carry when the file is
+; missing, empty or too big.
+load_file:
+                push hl
+                push bc
                 call c5fs_walk
+                pop bc
+                pop de
                 ret c
                 ld a, (INO_BUF + INO_SIZE + 2)
                 or a
-                jr nz, load_wr_bad
+                scf
+                ret nz
                 ld hl, (INO_BUF + INO_SIZE)
                 ld a, h
-                cp 8
-                jr nc, load_wr_bad
-                ld a, h
+                cp b
+                ccf
+                ret c
                 or l
-                jr z, load_wr_bad
+                scf
+                ret z
                 push hl
+                pop ix
                 ld hl, 0
                 ld (fs_acc), hl
                 ld (fs_acc + 2), hl
-                ld hl, WR_BASE
+                ex de, hl
                 ld de, fs_acc
-                pop ix
-                call c5fs_read
-                ret c
-                ld a, 1
-                ld (wr_ready), a
-                xor a
-                ret
-load_wr_bad:
-                ld a, EIO
-                scf
-                ret
+                jp c5fs_read

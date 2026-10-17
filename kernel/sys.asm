@@ -1,59 +1,90 @@
 ; System page jumps. The ROM enters here with interrupts still disabled.
 
 sys_init:
+                ld hl, sys_vectors
+                ld de, SYSPAGE
+                ld bc, SYS_ISR + 3 - SYSPAGE
+                ldir
                 ld a, 0C3h
-                ld (SYS_RST08), a
-                ld hl, syscall
-                ld (SYS_RST08 + 1), hl
-                ld a, 0C9h
-                ld (SYS_RST10), a
-                ld (SYS_RST18), a
-                ld (SYS_RST20), a
-                ld (SYS_RST28), a
-                ld (SYS_RST30), a
-                ld a, 0C3h
-                ld (SYS_ISR), a
-                ld hl, isr
-                ld (SYS_ISR + 1), hl
                 ld (SYS_NMI), a
                 ld hl, nmi
                 ld (SYS_NMI + 1), hl
 
+                xor a
                 ld hl, TICK_COUNT
-                ld (hl), 0
-                ld de, TICK_COUNT + 1
                 ld bc, 4048h - TICK_COUNT
-                ldir
+                call fill
                 ld hl, KBD_ACCEPTED
-                ld (hl), 0
-                ld de, KBD_ACCEPTED + 1
                 ld bc, BLINK_DIV - KBD_ACCEPTED
+                call fill
+                ld hl, CUR
+                ld bc, 40FFh - CUR
+                call fill
+                ld hl, KPAGE
+                ld bc, 2FFh
+                call fill
+                out (PORT_NMI), a
+                out (PORT_VIDEO), a
+                inc a
+                ld (KBUSY), a
+                ld (vol_sb), a
+                ld (T_STATE), a
+                ld (CON_WANT), a
+                ld (CON_STATE), a
+                ld hl, (SHADOW1 & 0FF00h) | (VIDEO_BASE >> 8)
+                ld (CON_PLANE), hl
+                ld hl, VIDEO_BASE & 0FF00h
+                ld (CON_BOUND), hl
+                ld hl, init_rec
+                ld de, TASK
+                ld bc, 16
                 ldir
+                ld hl, OFILE
+                ld c, 0
+init_con:
+                ld a, KIND_CON_IN
+                call init_ofile
+                ld a, KIND_CON_OUT
+                call init_ofile
+                call init_ofile
+                inc c
+                bit 1, c
+                jr z, init_con
                 ld a, 0FFh
                 ld (KBD_REP_ROW), a
-
-                call console_init
+                ld a, ' '
+                ld (CUR_UNDER), a
+                ld (CON_BLOCK + 14 + CUR_UNDER - CUR_ROW), a
+                ld hl, VIDEO_BASE
+                ld bc, VIDEO_SIZE - 1
+                call fill
+                ld hl, SHADOW1
+                ld bc, VIDEO_SIZE - 1
+                call fill
                 in a, (PORT_TIMER_ACK)
-                xor a
-                out (PORT_NMI), a
                 ld a, IRQ_TIMER
                 out (PORT_IRQ), a
                 ret
 
-nmi:
-                retn
-
+; RST 08h. A switch before KBUSY is set is an ordinary preemption of user code.
 syscall:
-                ld (SC_IX), ix
-                ld (SC_IY), iy
-                ex af, af'
                 push af
+                ld a, 1
+                ld (KBUSY), a
+                push bc
+                push de
+                push hl
+                push ix
+                push iy
+                ex af, af'
                 exx
+                push af
                 push bc
                 push de
                 push hl
                 exx
                 ex af, af'
+                ld (SC_FRAME), sp
                 ld a, c
                 cp SYS_SYNC
                 jp z, sys_sync
@@ -61,21 +92,26 @@ syscall:
                 jp z, sys_time
                 cp SYS_SETTIME
                 jp z, sys_settime
-                cp SYS_GETCWD + 1
+                cp SYS_IOCTL + 1
                 jr nc, sc_einval
-                ld (sc_hl), hl
-                ld (sc_de), de
+                add a, a
                 ld hl, sc_table
-                ld e, a
-                ld d, 0
-                add hl, de
-                add hl, de
-                ld e, (hl)
+                add a, l
+                ld l, a
+                adc a, h
+                sub l
+                ld h, a
+                ld a, (hl)
                 inc hl
-                ld d, (hl)
-                push de
-                ld hl, (sc_hl)
-                ld de, (sc_de)
+                ld h, (hl)
+                ld l, a
+                push hl
+                ld hl, F_HL + 2
+                add hl, sp
+                ld a, (hl)
+                inc hl
+                ld h, (hl)
+                ld l, a
                 ret
 
 sc_einval:
@@ -83,26 +119,37 @@ sc_einval:
 syscall_err:
                 ld hl, 0
                 scf
-syscall_exit:
-                exx
-                pop hl
-                pop de
-                pop bc
-                exx
-                ex af, af'
-                pop af
-                ex af, af'
-                ld ix, (SC_IX)
-                ld iy, (SC_IY)
-                ret
-
+                jr syscall_exit
 syscall_ok:
                 xor a
-                jr syscall_exit
+; A, carry and HL are the result.
+syscall_exit:
+                ld ix, (SC_FRAME)
+                ld (ix + F_HL), l
+                ld (ix + F_HL + 1), h
+                push af
+                pop hl
+                ld (ix + F_AF), l
+                ld (ix + F_AF + 1), h
+                ld sp, ix
+                di
+                ld a, (QUANTUM)
+                or a
+                jp z, sched_save
+                ld a, (CUR)
+                or a
+                jp z, sched_save
+                call t_state_a
+                ld a, (hl)
+                dec a
+                jp nz, sched_save
+                xor a
+                ld (KBUSY), a
+                jp frame_return
 
 sc_table:
                 dw sys_exit, sys_spawn, sys_wait, sys_getpid
-                dw sc_einval, sc_einval, sc_einval, sc_einval
+                dw sys_yield, sc_einval, sys_kill, sc_einval
                 dw sc_einval, sc_einval, sc_einval, sc_einval
                 dw sc_einval, sc_einval, sc_einval, sc_einval
                 dw sc_einval, sc_einval, sc_einval, sc_einval
@@ -112,36 +159,21 @@ sc_table:
                 dw sys_open, sys_close, sys_read, sys_write
                 dw sys_seek, sys_stat, sys_fstat, sys_readdir
                 dw sys_mkdir, sys_remove, sys_rename, sys_chdir
-                dw sys_getcwd
-                assert $ - sc_table == 45 * 2
+                dw sys_getcwd, sc_einval, sys_pipe, sys_ioctl
+                assert $ - sc_table == (SYS_IOCTL + 1) * 2
 
 ; HL = resident routine. It returns carry and A, or a result in HL.
 wr_go:
-                ld a, (wr_ready)
-                or a
-                jr z, wr_down
-                push hl
-                ld hl, wr_back
-                ex (sp), hl
-                jp (hl)
-wr_back:
+                call wr_go_keep
                 jp c, syscall_err
                 jp syscall_ok
-wr_down:
-                ld a, EIO
-                jp syscall_err
 
 ; Like wr_go, but return to the caller so open can allocate a descriptor.
 wr_go_keep:
                 ld a, (wr_ready)
                 or a
                 jr z, wr_keep_down
-                push hl
-                ld hl, wr_keep_back
-                ex (sp), hl
                 jp (hl)
-wr_keep_back:
-                ret
 wr_keep_down:
                 ld a, EIO
                 scf
@@ -165,68 +197,39 @@ sys_getpid:
                 ld h, 0
                 jp syscall_ok
 
-sys_exit:
-                ld a, (TASK + TASK_ID)
-                cp 2
-                jp z, exit_child
-                ld a, (CHILD_STATE)
-                cp CH_PENDING
-                jr nz, exit_halt
-                ld hl, CHILD_FD
-                call drop_fds
-                call free_child
-exit_halt:
-                di
-                halt
-                jr exit_halt
-
-exit_child:
-                ld a, e
-                ld (exit_code), a
-                call drop_task_fds
-                call free_child
-                ld hl, SHELL_SAVE
-                ld de, TASK
-                ld bc, 16
-                ldir
-                ld hl, (TASK + TASK_SP)
-                ld sp, hl
-                ld a, (exit_code)
-                ld l, a
-                ld h, 2
-                xor a
-                jp syscall_exit
-
-free_child:
-                ld a, (CHILD_BASE)
-                ld (ARENA_NEXT), a
-                xor a
-                ld (CHILD_STATE), a
-                ret
-
-drop_task_fds:
-                ld hl, TASK + TASK_FD
-drop_fds:
-                ld b, FD_SLOTS
-drop_fd:
+; HL = fd slot of the running task. Closes it if open.
+fd_drop:
                 ld a, (hl)
                 cp 0FFh
-                jr z, drop_fd_next
-                push hl
-                push bc
+                ret z
+                ld (hl), 0FFh
                 call ofile_of
+; HL = ofile. Drops one reference and frees the ofile with the last.
+ofile_release:
                 inc hl
                 dec (hl)
-                jr nz, drop_fd_keep
                 dec hl
+                ret nz
+                ld a, (hl)
                 ld (hl), KIND_FREE
-drop_fd_keep:
-                pop bc
-                pop hl
-drop_fd_next:
+                sub KIND_PIPE_R
+                cp 2
+                ret nc
+                inc a
+                ld b, a
                 inc hl
-                djnz drop_fd
-                ret
+                inc hl
+                ld a, (hl)
+                jp pipe_end_closed
+
+; Ends the call with 0 when io_len is 0. Keeps HL.
+io_empty:
+                ld de, (io_len)
+                ld a, d
+                or e
+                ret nz
+                ex de, hl
+                jp syscall_ok
 
 ofile_of:
                 push de
@@ -239,46 +242,6 @@ ofile_of:
                 add hl, de
                 pop de
                 ret
-
-sys_spawn:
-                ld a, (CHILD_STATE)
-                or a
-                ld a, EBUSY
-                jp nz, syscall_err
-                ld (spawn_argv), hl
-                ld (spawn_map), ix
-                call c5fs_walk
-                jp c, syscall_err
-                ld a, (INO_BUF + INO_TYPE)
-                and 0Fh
-                cp INO_KIND_DIR
-                jr nz, spawn_file
-                ld a, EISDIR
-                jp syscall_err
-spawn_file:
-                cp INO_KIND_FILE
-                jr z, spawn_fds
-                ld a, EIO
-                jp syscall_err
-spawn_fds:
-                call map_check
-                jp c, syscall_err
-                ld a, (ARENA_NEXT)
-                ld hl, (spawn_argv)
-                call load_c5x
-                jp c, syscall_err
-                ld (CHILD_ENTRY), hl
-                ld a, (ARENA_NEXT)
-                ld (CHILD_BASE), a
-                add a, b
-                ld (ARENA_NEXT), a
-                ld a, b
-                ld (CHILD_PAGES), a
-                call map_apply
-                ld a, CH_PENDING
-                ld (CHILD_STATE), a
-                ld hl, 2
-                jp syscall_ok
 
 map_check:
                 ld hl, (spawn_map)
@@ -313,8 +276,9 @@ map_bad:
                 scf
                 ret
 
+; Fills the fd table at spawn_fd from spawn_map, adding a reference per fd.
 map_apply:
-                ld hl, CHILD_FD
+                ld hl, (spawn_fd)
                 ld b, FD_SLOTS
 map_clear:
                 ld (hl), 0FFh
@@ -362,7 +326,7 @@ map_dup:
                 add hl, de
                 ld a, (hl)
                 ld e, c
-                ld hl, CHILD_FD
+                ld hl, (spawn_fd)
                 add hl, de
                 ld (hl), a
                 call ofile_of
@@ -370,79 +334,15 @@ map_dup:
                 inc (hl)
                 ret
 
-sys_wait:
-                ld a, (CHILD_STATE)
-                cp CH_PENDING
-                jr z, wait_id
-                ld a, ECHILD
-                jp syscall_err
-wait_id:
-                ld a, e
-                cp 0FFh
-                jr z, wait_go
-                cp 2
-                jr z, wait_go
-                ld a, ECHILD
-                jp syscall_err
-wait_go:
-                ld hl, TASK
-                ld de, SHELL_SAVE
-                ld bc, 16
-                ldir
-                ld hl, 0
-                add hl, sp
-                ld (SHELL_SAVE + TASK_SP), hl
-                ld a, 2
-                ld (TASK + TASK_ID), a
-                ld a, (CHILD_BASE)
-                ld (TASK + TASK_BASE), a
-                ld a, (CHILD_PAGES)
-                ld (TASK + TASK_PAGES), a
-                xor a
-                ld (TASK + TASK_SP), a
-                ld (TASK + TASK_SP + 1), a
-                ld (TASK + TASK_VOL), a
-                ld hl, CHILD_FD
-                ld de, TASK + TASK_FD
-                ld bc, FD_SLOTS
-                ldir
-                ld hl, 1
-                ld (TASK + TASK_CWD), hl
-                ld a, CH_RUNNING
-                ld (CHILD_STATE), a
-                ld sp, (child_sp)
-                ld hl, (CHILD_ENTRY)
-                push hl
-                ld hl, (child_argv)
-                xor a
-                ld bc, 0
-                ld de, 0
-                ld ix, 0
-                ld iy, 0
-                ei
-                ret
-
 sys_close:
                 ld a, e
                 cp FD_SLOTS
-                jr c, close_slot
                 ld a, EBADF
-                jp syscall_err
-close_slot:
+                jp nc, syscall_err
                 ld d, 0
                 ld hl, TASK + TASK_FD
                 add hl, de
-                ld a, (hl)
-                cp 0FFh
-                jr z, close_ok
-                ld (hl), 0FFh
-                call ofile_of
-                inc hl
-                dec (hl)
-                jr nz, close_ok
-                dec hl
-                ld (hl), KIND_FREE
-close_ok:
+                call fd_drop
                 ld hl, 0
                 jp syscall_ok
 
@@ -475,6 +375,8 @@ sys_read:
                 jp c, syscall_err
                 cp KIND_CON_IN
                 jp z, read_con
+                cp KIND_PIPE_R
+                jp z, pipe_read
                 cp KIND_FILE
                 jp z, read_file
                 cp KIND_DIR
@@ -485,20 +387,21 @@ read_bad:
                 ld a, EBADF
                 jp syscall_err
 
+; Fills all io_len bytes. Interrupts stay off from the empty test to the block.
 read_con:
-                ld hl, (io_len)
-                ld a, h
-                or l
-                jp z, syscall_ok
+                inc hl
+                inc hl
+                ld b, (hl)
+                call io_empty
                 ld hl, 0
                 ld (io_got), hl
-read_wait:
-                call kbd_get
-                jr c, read_store
-                ei
-                halt
-                jr read_wait
+                di
+                ld a, (CON_ACTIVE)
+                cp b
+                jr nz, read_round
 read_store:
+                call kbd_get
+                jr nc, read_round
                 ld hl, (io_buf)
                 ld (hl), a
                 inc hl
@@ -511,12 +414,59 @@ read_store:
                 ld (io_len), hl
                 ld a, h
                 or l
-                jr z, read_done
-                call kbd_get
-                jr c, read_store
-                jr read_wait
-read_done:
+                jr nz, read_store
+read_round:
+                ld a, CH_KEY
+
+; A = channel. io_got bytes moved this round and io_len are left. With bytes
+; left, the frame's HL and IX advance past this round, T_ARG keeps the total,
+; and the call blocks. Otherwise HL = the total and the caller's IX is restored.
+io_round:
+                push af
+                ld a, (CUR)
+                add a, a
+                add a, T_ARG & 0FFh
+                ld l, a
+                ld h, T_ARG >> 8
+                ld e, (hl)
+                inc l
+                ld d, (hl)
+                push hl
                 ld hl, (io_got)
+                add hl, de
+                ex de, hl
+                pop hl
+                ld ix, (SC_FRAME)
+                ld a, (io_len)
+                ld b, a
+                ld a, (io_len + 1)
+                or b
+                jr z, io_done
+                ld (hl), d
+                dec l
+                ld (hl), e
+                ld de, (io_got)
+                ld l, (ix + F_HL)
+                ld h, (ix + F_HL + 1)
+                add hl, de
+                ld (ix + F_HL), l
+                ld (ix + F_HL + 1), h
+                ld l, (ix + F_IX)
+                ld h, (ix + F_IX + 1)
+                or a
+                sbc hl, de
+                ld (ix + F_IX), l
+                ld (ix + F_IX + 1), h
+                pop af
+                jp block_retry
+io_done:
+                ld (hl), a
+                dec l
+                ld (hl), a
+                pop af
+                ex de, hl
+                ld (ix + F_IX), l
+                ld (ix + F_IX + 1), h
                 jp syscall_ok
 
 read_file:
@@ -528,22 +478,10 @@ read_file:
                 call c5fs_read
                 jp c, syscall_err
                 push hl
-                ld de, (io_pos)
-                ld a, (de)
-                add a, l
-                ld (de), a
-                inc de
-                ld a, (de)
-                adc a, h
-                ld (de), a
-                inc de
-                ld a, (de)
-                adc a, 0
-                ld (de), a
-                inc de
-                ld a, (de)
-                adc a, 0
-                ld (de), a
+                ld b, h
+                ld c, l
+                ld hl, (io_pos)
+                call add32
                 pop hl
                 jp syscall_ok
 
@@ -554,6 +492,8 @@ sys_write:
                 jp c, syscall_err
                 cp KIND_CON_OUT
                 jr z, write_con
+                cp KIND_PIPE_W
+                jp z, pipe_write
                 cp KIND_FILE
                 jr z, write_file
                 cp KIND_DIR
@@ -568,6 +508,9 @@ write_file:
                 ld hl, WR_WRITE
                 jp wr_go
 write_con:
+                inc hl
+                inc hl
+                ld e, (hl)
                 ld hl, (io_buf)
                 ld bc, (io_len)
 write_loop:
@@ -578,13 +521,64 @@ write_loop:
                 inc hl
                 push hl
                 push bc
+                push de
+                ld d, e
                 call console_putc
+                pop de
                 pop bc
                 pop hl
                 dec bc
                 jr write_loop
 write_done:
                 ld hl, (io_len)
+                jp syscall_ok
+
+; DE = console fd, HL = request, IX = argument. HL = the previous value.
+sys_ioctl:
+                push hl
+                call fd_get
+                pop bc
+                jp c, syscall_err
+                dec a
+                cp KIND_CON_OUT
+                jp nc, sc_einval
+                inc hl
+                inc hl
+                ld a, (hl)
+                add a, CON_FG & 0FFh
+                ld l, a
+                ld h, CON_FG >> 8
+                push ix
+                pop de
+                ld a, b
+                or d
+                jp nz, sc_einval
+                dec c
+                jr z, ioctl_fg
+                dec c
+                jp nz, sc_einval
+                inc l
+                inc l
+                ld a, e
+                and ~CON_RAW
+                jp nz, sc_einval
+                jr ioctl_set
+ioctl_fg:
+                ld a, e
+                cp TASK_SLOTS
+                jp nc, sc_einval
+                push hl
+                call t_state_a
+                ld a, (hl)
+                pop hl
+                dec a
+                cp TS_DYING
+                jp nc, sc_einval
+ioctl_set:
+                ld a, (hl)
+                ld (hl), e
+                ld l, a
+                ld h, 0
                 jp syscall_ok
 
 sys_seek:
@@ -1153,7 +1147,7 @@ ld_res:
                 call ld_size_cmp
                 jp c, ld_exec
                 call ld_fit_arena
-                jp c, ld_exec
+                ret c
                 ld hl, (ld_hdr + 10)
                 ld de, (ld_hdr + 4)
                 or a
@@ -1230,7 +1224,8 @@ ld_size_no:
                 scf
                 ret
 
-; Carry set when image + bss + stack + 192 exceeds the arena.
+; Carry and ENOMEM when image + bss + stack + 192 exceeds the run from ld_page
+; to RUN_END. Checked before the image read, which would overwrite the next task.
 ld_fit_arena:
                 ld hl, (ld_hdr + 4)
                 ld de, (ld_hdr + 6)
@@ -1247,14 +1242,18 @@ ld_fit_arena:
                 add hl, de
                 ld a, c
                 adc a, 0
-                or a
-                scf
-                ret nz
-                ld de, ARENA_BYTES
-                or a
+                jr nz, ld_fit_no
+                ld a, (ld_page)
+                ld e, a
+                ld a, (RUN_END)
+                sub e
+                ld d, a
+                ld e, 0
                 sbc hl, de
+                jr z, ld_fit_ok
                 jr c, ld_fit_ok
-                ret z
+ld_fit_no:
+                ld a, ENOMEM
                 scf
                 ret
 ld_fit_ok:
@@ -1355,28 +1354,9 @@ ld_exact:
                 ret c
                 or a
                 sbc hl, bc
-                jr z, ld_exact_adv
+                jr z, ld_pos_add
                 ld a, EIO
                 scf
-                ret
-ld_exact_adv:
-                ld hl, ld_pos
-                ld a, (hl)
-                add a, c
-                ld (hl), a
-                inc hl
-                ld a, (hl)
-                adc a, b
-                ld (hl), a
-                inc hl
-                ld a, (hl)
-                adc a, 0
-                ld (hl), a
-                inc hl
-                ld a, (hl)
-                adc a, 0
-                ld (hl), a
-                xor a
                 ret
 
 ld_reloc:
@@ -1434,6 +1414,8 @@ ld_reloc_n:
 
 ld_pos_add:
                 ld hl, ld_pos
+; HL = 32-bit value, BC = addend. A = 0, carry clear.
+add32:
                 ld a, (hl)
                 add a, c
                 ld (hl), a
@@ -1449,6 +1431,7 @@ ld_pos_add:
                 ld a, (hl)
                 adc a, 0
                 ld (hl), a
+                xor a
                 ret
 
 ; HL = first bitmap byte, BC = count. The bytes stay in BLK_BUF until this returns.
@@ -1553,34 +1536,9 @@ ld_finish:
                 add hl, de
                 ld de, KERNEL_RESERVE
                 add hl, de
-                ld a, h
-                or l
-                jr nz, ld_pages_up
-                ld b, 0
-                jr ld_entry
-ld_pages_up:
                 ld de, 255
                 add hl, de
                 ld b, h
-ld_entry:
-                ld a, (ld_page)
-                add a, b
-                cp WR_BASE >> 8
-                jr c, ld_entry_room
-                jr z, ld_entry_room
-                ld a, ENOMEM
-                scf
-                ret
-ld_entry_room:
-                ld a, (ld_page)
-                add a, b
-                jr nc, ld_entry_ok
-                or a
-                jr z, ld_entry_ok
-                ld a, ENOMEM
-                scf
-                ret
-ld_entry_ok:
                 ld a, (ld_page)
                 ld h, a
                 ld l, 0
@@ -1589,121 +1547,39 @@ ld_entry_ok:
                 xor a
                 ret
 
-become_shell:
-                ld de, shell_path
-                call c5fs_walk
-                jr c, shell_halt
-                ld a, (INO_BUF + INO_TYPE)
-                and 0Fh
-                cp INO_KIND_FILE
-                jr nz, shell_halt
-                ld a, ARENA_FIRST
-                ld hl, empty_argv
-                call load_c5x
-                jr c, shell_halt
-                ld (CHILD_ENTRY), hl
-                ld a, 1
-                ld (TASK + TASK_ID), a
-                ld a, ARENA_FIRST
-                ld (TASK + TASK_BASE), a
-                ld a, b
-                ld (TASK + TASK_PAGES), a
-                add a, ARENA_FIRST
-                ld (ARENA_NEXT), a
-                xor a
-                ld (TASK + TASK_SP), a
-                ld (TASK + TASK_SP + 1), a
-                ld (TASK + TASK_VOL), a
-                ld (CHILD_STATE), a
-                ld hl, 1
-                ld (TASK + TASK_CWD), hl
-                ld hl, shell_fds
-                ld de, TASK + TASK_FD
-                ld bc, FD_SLOTS
-                ldir
-                ld hl, CHILD_FD
-                ld b, FD_SLOTS
-shell_fd:
-                ld (hl), 0FFh
-                inc hl
-                djnz shell_fd
-                call shell_ofiles
-                ld sp, (child_sp)
-                ld hl, (CHILD_ENTRY)
-                push hl
-                ld hl, (child_argv)
-                xor a
-                ld bc, 0
-                ld de, 0
-                ld ix, 0
-                ld iy, 0
-                ei
-                ret
-shell_halt:
-                di
-                halt
-                jr shell_halt
-
-shell_ofiles:
-                ld hl, OFILE
-                ld de, OFILE + 1
-                ld bc, OFILE_SLOTS * OF_STRIDE - 1
-                ld (hl), 0
-                ldir
-                ld hl, OFILE
-                ld (hl), KIND_CON_IN
-                inc hl
-                ld (hl), 1
-                ld hl, OFILE + OF_STRIDE
-                ld (hl), KIND_CON_OUT
-                inc hl
-                ld (hl), 1
-                ld hl, OFILE + 2 * OF_STRIDE
-                ld (hl), KIND_CON_OUT
-                inc hl
-                ld (hl), 1
-                ret
-
-shell_path:     db "/bin/sh", 0
-empty_argv:     db 0, 0
-shell_fds:      db 0, 1, 2, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
-
-exit_code:      db 0
-sc_hl:          dw 0
-sc_de:          dw 0
-spawn_argv:     dw 0
-spawn_map:      dw 0
-io_buf:         dw 0
-io_len:         dw 0
-io_got:         dw 0
-io_pos:         dw 0
-io_path:        dw 0
-ren_old:        dw 0
-ren_new:        dw 0
-open_flags:     db 0
-open_kind:      db 0
-open_ino:       dw 0
-ofile_ptr:      dw 0
-seek_whence:    db 0
-seek_base:      ds 4, 0
-cwd_buf:        dw 0
-cwd_size:       dw 0
-cwd_need:       dw 0
-cwd_pos:        dw 0
-cwd_ino:        dw 0
-cwd_parent:     dw 0
-cwd_ent:        ds 32, 0
-child_sp:       dw 0
-child_argv:     dw 0
-ld_page:        db 0
-ld_argv:        dw 0
-ld_argn:        db 0
-ld_pos:         ds 4, 0
-ld_hdr:         ds 16, 0
-ld_bbytes:      dw 0
-ld_expect_w:    dw 0
-ld_expect_b:    db 0
-ld_mask:        db 0
-ld_byte:        db 0
-ld_index:       dw 0
-ld_bptr:        dw 0
+                kvar spawn_argv, 2
+                kvar spawn_map, 2
+                kvar io_buf, 2
+                kvar io_len, 2
+                kvar io_got, 2
+                kvar io_pos, 2
+                kvar io_path, 2
+                kvar ren_old, 2
+                kvar ren_new, 2
+                kvar open_flags, 1
+                kvar open_kind, 1
+                kvar open_ino, 2
+                kvar ofile_ptr, 2
+                kvar seek_whence, 1
+                kvar seek_base, 4
+                kvar cwd_buf, 2
+                kvar cwd_size, 2
+                kvar cwd_need, 2
+                kvar cwd_pos, 2
+                kvar cwd_ino, 2
+                kvar cwd_parent, 2
+                kvar cwd_ent, 32
+                kvar child_sp, 2
+                kvar child_argv, 2
+                kvar ld_page, 1
+                kvar ld_argv, 2
+                kvar ld_argn, 1
+                kvar ld_pos, 4
+                kvar ld_hdr, 16
+                kvar ld_bbytes, 2
+                kvar ld_expect_w, 2
+                kvar ld_expect_b, 1
+                kvar ld_mask, 1
+                kvar ld_byte, 1
+                kvar ld_index, 2
+                kvar ld_bptr, 2

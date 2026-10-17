@@ -92,6 +92,8 @@ CURSOR_BLOCK        equ 0BFh
 K_DOWN              equ 1               ; keyboard table only, never a ring byte
 K_LEFT              equ 2
 K_RIGHT             equ 3
+K_BREAK             equ 4
+K_CLEAR             equ 5
 
 VOL                 equ 4062h
 VOL_SIDES           equ VOL + 0
@@ -102,17 +104,42 @@ VOL_ICOUNT          equ VOL + 6
 VOL_FIRST           equ VOL + 8
 
 INO_BUF             equ 406Ch
-TASK                equ 408Ch
-SHELL_SAVE          equ 409Ch
-OFILE               equ 40ACh
-SC_IX               equ 40ECh
-SC_IY               equ 40EEh
-CHILD_BASE          equ 40F0h
-CHILD_PAGES         equ 40F1h
-CHILD_ENTRY         equ 40F2h
-CHILD_STATE         equ 40F4h
-ARENA_NEXT          equ 40F5h
-CHILD_FD            equ 40F6h
+TASK                equ 408Ch           ; the running task's record; T_LIVE[CUR] is stale while it runs
+CUR                 equ 409Ch           ; running slot
+KBUSY               equ 409Dh           ; 1 while a call or a switch runs; the ISR never switches then
+QUANTUM             equ 409Eh           ; ISR counts down; 0 asks for a switch
+CON_ACTIVE          equ 409Fh           ; console in video RAM
+SC_FRAME            equ 40A0h           ; SP of the current call's frame
+CON_BOUND           equ 40A2h           ; console whose state is in CUR_ROW..BLINK_DIV, 0FFh none
+CON_PLANE_CUR       equ 40A3h           ; plane page of the bound console
+CON_WANT            equ 40A4h           ; bit k: console k needs a shell
+KBD_PREFIX          equ 40A5h           ; 0, K_CLEAR or a dead key
+RUN_START           equ 40A6h           ; largest free run of arena pages
+RUN_END             equ 40A7h           ; exclusive
+T_STATE             equ 40A8h           ; 8 slots
+T_CHAN              equ 40B0h
+T_PARENT            equ 40B8h
+T_ARG               equ 40C0h           ; 8 words
+PIPE                equ 40D0h           ; 4 x state, page, head, tail
+CON_STATE           equ 40E0h           ; per console: 0 no shell, 1 shell started
+CON_PLANE           equ 40E2h           ; plane page per console, 3Ch while shown
+CON_FG              equ 40E4h           ; foreground task per console, 0 none
+CON_MODE            equ 40E6h           ; CON_FG + 2
+
+KEYMAP              equ 0F000h          ; /sys/keymap: unshifted and shifted 8x8 tables
+KBD_UNSHIFTED       equ KEYMAP
+KBD_SHIFTED         equ KEYMAP + 64
+ACUTE_FROM          equ KEYMAP + 128    ; 14 keys that compose after DEAD_ACUTE
+ACUTE_TO            equ KEYMAP + 142    ; their ISO-8859-1 results
+LAT1_GLYPH          equ KEYMAP + 156    ; video code for C0h-FFh
+DEAD_ACUTE          equ 27h
+SHADOW1             equ 0F100h          ; console 1's hidden screen
+KPAGE               equ 0F500h
+OWNER               equ KPAGE           ; owner of page ARENA_FIRST + i: 0 free, slot, 0FFh kernel
+CON_BLOCK           equ KPAGE + 96h     ; 14 saved console bytes per console
+KVARS               equ KPAGE + 0B2h
+T_LIVE              equ KPAGE + 180h    ; 16-byte record per slot, TASK layout
+OFILE               equ KPAGE + 200h
 
 TASK_ID             equ 0
 TASK_BASE           equ 1
@@ -133,10 +160,35 @@ KIND_CON_IN         equ 1
 KIND_CON_OUT        equ 2
 KIND_FILE           equ 3
 KIND_DIR            equ 4
+KIND_PIPE_R         equ 5
+KIND_PIPE_W         equ 6
 
-CH_NONE             equ 0
-CH_PENDING          equ 1
-CH_RUNNING          equ 2
+TASK_SLOTS          equ 8
+TS_FREE             equ 0
+TS_READY            equ 1               ; bit 0 is runnable
+TS_BLOCKED          equ 2
+TS_DYING            equ 3
+TS_ZOMBIE           equ 4
+QUANTUM_TICKS       equ 2
+EXIT_KILLED         equ 0FFh
+
+CH_KEY              equ 1
+CH_TICK             equ 2
+CH_CHILD            equ 3
+CH_PIPE             equ 8               ; + pipe
+
+NCON                equ 2
+NPIPE               equ 4
+PIPE_R_OPEN         equ 1
+PIPE_W_OPEN         equ 2
+
+; User frame offsets from its SP. Syscall entry and the ISR push the same 22 bytes.
+F_IY                equ 8
+F_IX                equ 10
+F_HL                equ 12
+F_AF                equ 18
+F_PC                equ 20
+FRAME_SIZE          equ 22
 
 INO_TYPE            equ 0
 INO_EXTENTS         equ 1
@@ -165,12 +217,12 @@ WR_SYNC             equ WR_BASE + 15
 WR_TIME             equ WR_BASE + 18
 WR_SET              equ WR_BASE + 21
 ARENA_FIRST         equ 62h
-ARENA_BYTES         equ 40448
+ARENA_LAST          equ 0EFh            ; last page programs and pipes may use
 KERNEL_RESERVE      equ 192
 PATH_MAX            equ 127
 ARGV_MAX            equ 128
 FD_SLOTS            equ 8
-OFILE_SLOTS         equ 8
+OFILE_SLOTS         equ 16
 
 ; ------------------------------------------------------------ interrupts E0h-E7h
 
@@ -324,6 +376,11 @@ SYS_IOCTL           equ 2Fh
 SYS_SYNC            equ 30h
 SYS_TIME            equ 40h
 SYS_SETTIME         equ 41h
+
+IOCTL_SETFG         equ 01h             ; IX = foreground task, 0 none
+IOCTL_SETMODE       equ 02h             ; IX = console mode bits
+CON_RAW             equ 01h             ; BREAK reads as KEY_BREAK, no dead keys
+KEY_BREAK           equ 03h
 
 O_READ              equ 01h
 O_WRITE             equ 02h

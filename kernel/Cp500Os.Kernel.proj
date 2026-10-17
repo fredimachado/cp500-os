@@ -3,6 +3,7 @@
 
   <ItemGroup>
     <Z80Program Include="kernel.asm" OutputName="kernel.bin" />
+    <Z80Program Include="keymap.asm" OutputName="keymap.bin" />
   </ItemGroup>
 
   <Target Name="AssembleWriter" AfterTargets="AssembleZ80"

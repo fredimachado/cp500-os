@@ -5,7 +5,7 @@
                 ld (argv), hl
                 ld a, 1
                 call arg_ptr
-                jp c, fail_inval
+                jr c, cat_read
                 ld c, SYS_OPEN
                 ex de, hl
                 ld b, O_READ
@@ -33,10 +33,6 @@ cat_read:
                 rst 08h
                 jp c, fail
                 jr cat_read
-
-fail_inval:
-                ld a, EINVAL
-                jp fail
 
 fd:             db 0
 
