@@ -67,6 +67,7 @@ dev_call:
                 pop af
                 ret
 dc_busy:
+                push ix
                 ld ix, (SC_FRAME)
                 ld a, (ix + F_C)
                 cp SYS_OPEN
@@ -79,29 +80,39 @@ dc_busy:
                 jr z, dc_rw
                 cp SYS_IOCTL
                 jp z, dc_ioctl
+                pop ix
                 pop af
                 ret
 dc_ioctl:
+                pop ix
                 pop af
                 cp KIND_DEV
-                jr c, dc_ret
+                jr c, dc_ioctl_out
                 sub KIND_DEV
                 cp DEV_ROWS
-                jr nc, dc_ret
+                jr nc, dc_ioctl_out
+                push ix
                 jp ser_ioctl
+dc_ioctl_out:
+                ret
 dc_open:
+                pop ix
                 pop af
                 jp dev_open
 dc_poll:
+                pop de
                 pop af
+                push de
                 jp dev_poll
 dc_rw:
+                pop de
                 pop af
+                push de
                 cp KIND_DEV
-                jr c, dc_ret
+                jr c, dc_pop_ix
                 sub KIND_DEV
                 cp DEV_ROWS
-                jr nc, dc_ret
+                jr nc, dc_pop_ix
                 add a, a
                 add a, a
                 add a, a
@@ -143,7 +154,8 @@ dc_wr:
                 ld d, (hl)
                 ex de, hl
                 jp (hl)
-dc_ret:
+dc_pop_ix:
+                pop ix
                 ret
 
 dev_open:
