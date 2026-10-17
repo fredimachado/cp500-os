@@ -147,12 +147,13 @@ dc_ret:
                 ret
 
 dev_open:
+                push de
                 ld hl, (io_path)
                 ld de, ser0_name
 do_cmp:
                 ld a, (de)
                 cp (hl)
-                ret nz
+                jr nz, do_nomatch
                 inc hl
                 inc de
                 or a
@@ -161,11 +162,19 @@ do_cmp:
                 and O_CREATE | O_TRUNC | O_APPEND | O_EXCL
                 jp nz, dev_err_einval
                 jp ser_open
+do_nomatch:
+                pop de
+                ret
 
 dev_close:
+                push af
                 ld a, (KBUSY)
                 or a
-                ret z
+                jr nz, dc_kind
+                pop af
+                ret
+dc_kind:
+                pop af
                 cp KIND_SER
                 ret nz
                 jp ser_close
@@ -240,6 +249,7 @@ dp_scan:
                 ld a, (hl)
                 call poll_one
                 ld e, a
+                pop hl
                 inc hl
                 ld a, (hl)
                 inc hl
@@ -253,7 +263,8 @@ dp_scan:
                 and POLL_ALWAYS
                 or e
                 ld (hl), a
-                pop hl
+                dec hl
+                dec hl
                 pop bc
                 or a
                 jr z, dp_next
@@ -280,25 +291,47 @@ dp_next:
                 ld a, h
                 and 7Fh
                 ld h, a
-                ld de, (T_ARG)
+                ld b, h
+                ld c, l
+                ld a, (CUR)
+                add a, a
+                add a, T_ARG & 0FFh
+                ld e, a
+                ld d, T_ARG >> 8
+                ld a, (de)
+                ld l, a
+                inc de
+                ld a, (de)
+                ld h, a
+                push hl
+                pop de
                 bit 7, d
                 jr z, dp_arm
-                ld a, e
+                ld hl, bc
+                ld a, d
                 and 7Fh
-                ld e, a
-                ld d, 0
+                ld d, a
                 or a
                 sbc hl, de
                 ld de, (ix + F_HL)
-                ld a, l
-                cp e
+                or a
+                sbc hl, de
                 jp nc, dev_ok_z
+                jr dp_forever
 dp_arm:
+                ld hl, bc
                 ld a, h
                 or 80h
                 ld d, a
                 ld e, l
-                ld (T_ARG), de
+                ld a, (CUR)
+                add a, a
+                add a, T_ARG & 0FFh
+                ld l, a
+                ld h, T_ARG >> 8
+                ld (hl), e
+                inc l
+                ld (hl), d
 dp_forever:
                 ld a, CH_TICK
                 jp block_retry
@@ -383,7 +416,7 @@ po_pr:
                 ld a, POLLIN
                 jr nz, po_prh
                 bit 1, (hl)
-                jr z, po_pr0
+                jr nz, po_pr0
                 ld a, POLLIN | POLLHUP
                 ret
 po_prh:
