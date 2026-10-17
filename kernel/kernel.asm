@@ -2,6 +2,13 @@
 
                 include "cp500.inc"
 
+; Zero-initialized kernel variables live in KPAGE, outside the 8 KiB image.
+kv = KVARS
+                MACRO kvar kv_label, kv_bytes
+kv_label        equ kv
+kv = kv + kv_bytes
+                ENDM
+
                 org KERNEL_BASE
 
                 include "load.asm"
@@ -27,9 +34,9 @@ km_sides:
                 call c5fs_mount
                 jr c, km_mount
                 call load_wr
-                ld a, ARENA_FIRST
-                ld (ARENA_NEXT), a
-                call become_shell
+                xor a
+                ld (KBUSY), a
+                jp init_task
 km_mount:
                 ld a, 'M'
                 ld (VIDEO_BASE + 15 * VIDEO_COLS), a
@@ -52,6 +59,7 @@ banner:
                 db 0
 
                 include "sys.asm"
+                include "task.asm"
                 include "isr.asm"
                 include "keyboard.asm"
                 include "console.asm"
@@ -60,3 +68,5 @@ banner:
 
                 assert $ <= BLK_BUF
                 ds ARENA_BASE - $, 0
+
+                assert kv <= T_LIVE

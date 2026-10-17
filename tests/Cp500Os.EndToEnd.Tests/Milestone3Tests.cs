@@ -86,21 +86,22 @@ public sealed class Milestone3Tests : IDisposable
     }
 
     [Fact]
-    public async Task SpawnWithoutWaitLeavesTheRelocatedSample()
+    public async Task SpawnWithoutWaitRunsTheRelocatedSample()
     {
         C5xProgram shell = Load("sh.c5x");
         C5xProgram sample = Load("reloc.c5x");
         int childPage = 0x62 + shell.Header.MemoryPages;
+        int counter = SampleSymbol("counter");
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", Product(),
             "--until-screen", "sh>", "--timeout", "20s",
             "--type", "? /lib/reloc.c5x{ENTER}", "--until-screen", "ok",
             "--dump-screen",
-            "--dump-memory", $"{childPage * 256:X4}:{sample.Header.ImageSize}");
+            "--dump-memory", $"{childPage * 256:X4}:{counter}");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         Assert.Contains(Visible(run.Stdout), line => line == "ok");
-        Assert.Equal(sample.RelocateTo((byte)childPage), run.DumpedMemory());
+        Assert.Equal(sample.RelocateTo((byte)childPage)[..counter], run.DumpedMemory());
     }
 
     [Fact]
@@ -154,6 +155,13 @@ public sealed class Milestone3Tests : IDisposable
     }
 
     private static C5xProgram Load(string name) => C5xFile.Parse(RepoPaths.ReadZ80Output(name));
+
+    private static int SampleSymbol(string name)
+    {
+        string prefix = name + ": EQU 0x";
+        string line = File.ReadLines(RepoPaths.Z80Output("reloc-sample-0000.sym")).Single(l => l.StartsWith(prefix, StringComparison.Ordinal));
+        return int.Parse(line.AsSpan(prefix.Length), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    }
 
     private static string Product() => Path.Combine(RepoPaths.Root, "build", "cp500-os.dsk");
 

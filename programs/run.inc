@@ -49,6 +49,7 @@ cr:
 ; A = error code. Prints its name and exits with it.
 fail:
                 ld c, a
+                push bc
                 ld hl, err_tab
 fail_find:
                 ld a, (hl)
@@ -69,7 +70,7 @@ fail_hit:
                 call puts
                 call cr
 fail_exit:
-                ld e, c
+                pop de
                 ld d, 0
                 ld c, SYS_EXIT
                 rst 08h

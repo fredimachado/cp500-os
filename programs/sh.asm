@@ -94,8 +94,8 @@ run_path:
                 ld ix, 0
                 rst 08h
                 jp c, show_err
+                ex de, hl
                 ld c, SYS_WAIT
-                ld de, 0FFh
                 rst 08h
                 jp c, show_err
                 ld a, l

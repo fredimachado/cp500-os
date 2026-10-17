@@ -248,12 +248,9 @@ kbd_get:
                 scf
                 ret
 
-kbd_now:
-                ds 8, 0
-kbd_fresh:
-                ds 8, 0
-kbd_replaced:
-                db 0
+                kvar kbd_now, 8
+                kvar kbd_fresh, 8
+                kvar kbd_replaced, 1
 
 kbd_unshifted:
                 db '@', 'a', 'b', 'c', 'd', 'e', 'f', 'g'

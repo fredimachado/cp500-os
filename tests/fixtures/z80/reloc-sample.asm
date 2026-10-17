@@ -42,5 +42,5 @@ table_end:
 counter:
     db 0, 0
 stack:
-    ds 32, 0
+    ds 96, 0                            ; also holds a preemption frame and a nested ISR
 stack_top:

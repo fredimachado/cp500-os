@@ -112,7 +112,7 @@ fr_fail:
                 ei
                 ret
 
-io_cmd:         db 0
+                kvar io_cmd, 1
 
 ; HL / A. HL = quotient, A = remainder. The carry out of RLA is the 9th remainder bit.
 div168:
