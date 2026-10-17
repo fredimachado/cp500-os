@@ -162,6 +162,8 @@ KIND_FILE           equ 3
 KIND_DIR            equ 4
 KIND_PIPE_R         equ 5
 KIND_PIPE_W         equ 6
+KIND_DEV            equ 7
+KIND_SER            equ KIND_DEV + 0
 
 TASK_SLOTS          equ 8
 TS_FREE             equ 0
@@ -173,8 +175,9 @@ QUANTUM_TICKS       equ 2
 EXIT_KILLED         equ 0FFh
 
 CH_KEY              equ 1
-CH_TICK             equ 2
+CH_TICK             equ 2               ; dev_isr wakes this every timer tick when /sys/dev is loaded
 CH_CHILD            equ 3
+CH_SER              equ 4
 CH_PIPE             equ 8               ; + pipe
 
 NCON                equ 2
@@ -188,6 +191,10 @@ F_IX                equ 10
 F_HL                equ 12
 F_AF                equ 18
 F_PC                equ 20
+F_DE                equ 14
+F_BC                equ 16
+F_C                 equ 16
+F_B                 equ 17
 FRAME_SIZE          equ 22
 
 INO_TYPE            equ 0
@@ -374,6 +381,7 @@ SYS_DUP2            equ 2Dh
 SYS_PIPE            equ 2Eh
 SYS_IOCTL           equ 2Fh
 SYS_SYNC            equ 30h
+SYS_POLL            equ 31h
 SYS_TIME            equ 40h
 SYS_SETTIME         equ 41h
 
@@ -381,6 +389,78 @@ IOCTL_SETFG         equ 01h             ; IX = foreground task, 0 none
 IOCTL_SETMODE       equ 02h             ; IX = console mode bits
 CON_RAW             equ 01h             ; BREAK reads as KEY_BREAK, no dead keys
 KEY_BREAK           equ 03h
+
+POLLIN              equ 01h
+POLLOUT             equ 02h
+POLLHUP             equ 04h
+POLLERR             equ 08h
+POLLNVAL            equ 10h
+POLL_ALWAYS         equ POLLHUP | POLLERR | POLLNVAL
+POLL_ENTRY          equ 3
+POLL_MAX            equ 8
+POLL_FOREVER        equ 0FFFFh
+
+SER_CLASS           equ 02h
+SER_GETCFG          equ 0201h
+SER_SETCFG          equ 0202h
+SER_GETLINES        equ 0203h
+SER_SETDTR          equ 0204h
+SER_BREAK           equ 0205h
+SER_STATS           equ 0206h
+CFG_BAUD            equ 0
+CFG_DATA            equ 1
+CFG_PARITY          equ 2
+CFG_STOP            equ 3
+CFG_FLAGS           equ 4
+CFG_RESERVED        equ 5
+CFG_SIZE            equ 6
+CFG_F_RTSCTS        equ 01h
+CFG_F_DCD           equ 02h
+STATS_SIZE          equ 8
+
+HOOK_DISK           equ 10h
+HOOK_CALL           equ 18h
+HOOK_CLOSE          equ 20h
+HOOK_SLOT           equ SYS_RST10
+                assert SYS_RST18 == HOOK_SLOT + 3 && SYS_RST20 == HOOK_SLOT + 6
+
+DEV_PAGES           equ 10
+DEV_BASE            equ (ARENA_LAST + 1 - DEV_PAGES) << 8
+DEV_INIT            equ DEV_BASE
+
+PORT_SER_MODEM      equ 0E8h
+PORT_SER_RESET      equ 0E8h
+PORT_SER_BAUD       equ 0E9h
+PORT_SER_STATUS     equ 0EAh
+PORT_SER_CTL        equ 0EAh
+PORT_SER_DATA       equ 0EBh
+
+SER_MS_CTS_BIT      equ 7
+SER_MS_DSR_BIT      equ 6
+SER_MS_DCD_BIT      equ 5
+SER_MS_RI_BIT       equ 4
+
+SER_ST_DR_BIT       equ 7
+SER_ST_THRE_BIT     equ 6
+SER_ST_OE_BIT       equ 5
+SER_ST_FE_BIT       equ 4
+SER_ST_PE_BIT       equ 3
+SER_ST_DR           equ 1 << SER_ST_DR_BIT
+SER_ST_THRE         equ 1 << SER_ST_THRE_BIT
+
+SER_CT_DTR          equ 01h
+SER_CT_RTS          equ 02h
+SER_CT_BREAK        equ 04h
+SER_CT_NOPARITY     equ 08h
+SER_CT_STOP2        equ 10h
+SER_CT_WLEN_SHIFT   equ 5
+SER_CT_EVEN         equ 80h
+
+IRQ_SER_TX_BIT      equ 4
+IRQ_SER_RX_BIT      equ 5
+IRQ_SER_ERR_BIT     equ 6
+IRQ_SER_TX          equ 1 << IRQ_SER_TX_BIT
+IRQ_SER_RX          equ 1 << IRQ_SER_RX_BIT
 
 O_READ              equ 01h
 O_WRITE             equ 02h

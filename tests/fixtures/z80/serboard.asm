@@ -2,19 +2,6 @@
 
                 include "cp500.inc"
 
-SER_GETCFG          equ 0201h
-SER_SETCFG          equ 0202h
-SER_GETLINES        equ 0203h
-SER_BREAK           equ 0205h
-SER_STATS           equ 0206h
-CFG_BAUD            equ 0
-CFG_DATA            equ 1
-CFG_PARITY          equ 2
-CFG_STOP            equ 3
-CFG_FLAGS           equ 4
-CFG_RESERVED        equ 5
-CFG_F_RTSCTS        equ 01h
-
                 org ORIGIN
 
                 ld c, SYS_OPEN

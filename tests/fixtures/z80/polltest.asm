@@ -2,14 +2,6 @@
 
                 include "cp500.inc"
 
-SYS_POLL            equ 31h
-POLLIN              equ 01h
-POLLOUT             equ 02h
-POLLHUP             equ 04h
-POLLERR             equ 08h
-POLLNVAL            equ 10h
-POLL_FOREVER        equ 0FFFFh
-
                 org ORIGIN
 
                 ld (argv), hl

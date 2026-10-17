@@ -2,9 +2,6 @@
 
                 include "cp500.inc"
 
-SYS_POLL            equ 31h
-SER_GETCFG          equ 0201h
-
                 org ORIGIN
 
                 ld (argv), hl

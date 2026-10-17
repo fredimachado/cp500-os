@@ -2,8 +2,6 @@
 
                 include "cp500.inc"
 
-SER_GETCFG          equ 0201h
-
                 org ORIGIN
 
                 ld c, SYS_OPEN

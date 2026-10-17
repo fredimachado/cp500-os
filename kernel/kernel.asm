@@ -73,6 +73,8 @@ banner:
                 include "floppy.asm"
                 include "c5fs.asm"
 
+; Hook budget: if code passes 60FFh, repoint cwd_bad and spawn_file ENOENT exits to err_eio (+6).
+                assert $ <= 60FFh
                 assert $ <= BLK_BUF
                 ds ARENA_BASE - $, 0
 

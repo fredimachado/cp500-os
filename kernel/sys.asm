@@ -93,7 +93,7 @@ syscall:
                 cp SYS_SETTIME
                 jp z, sys_settime
                 cp SYS_IOCTL + 1
-                jr nc, sc_einval
+                jr nc, sc_high
                 add a, a
                 ld hl, sc_table
                 add a, l
@@ -114,6 +114,8 @@ syscall:
                 ld l, a
                 ret
 
+sc_high:
+                rst HOOK_CALL
 sc_einval:
                 ld a, EINVAL
 syscall_err:
@@ -212,6 +214,7 @@ ofile_release:
                 ret nz
                 ld a, (hl)
                 ld (hl), KIND_FREE
+                rst HOOK_CLOSE
                 sub KIND_PIPE_R
                 cp 2
                 ret nc
@@ -384,6 +387,7 @@ sys_read:
                 ld a, EISDIR
                 jp syscall_err
 read_bad:
+                rst HOOK_CALL
                 ld a, EBADF
                 jp syscall_err
 
@@ -498,6 +502,7 @@ sys_write:
                 jr z, write_file
                 cp KIND_DIR
                 jr z, write_dir
+                rst HOOK_CALL
                 ld a, EBADF
                 jp syscall_err
 write_dir:
@@ -539,6 +544,7 @@ sys_ioctl:
                 call fd_get
                 pop bc
                 jp c, syscall_err
+                rst HOOK_CALL
                 dec a
                 cp KIND_CON_OUT
                 jp nc, sc_einval
@@ -589,8 +595,7 @@ sys_seek:
                 jp c, syscall_err
                 cp KIND_FILE
                 jr z, seek_file
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 seek_file:
                 call take_inode
                 jp c, syscall_err
@@ -601,8 +606,7 @@ seek_file:
                 jr z, seek_cur
                 dec a
                 jr z, seek_end
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 seek_set:
                 ld hl, seek_base
                 ld b, 4
@@ -645,8 +649,7 @@ seek_byte:
                 ld a, (seek_base + 3)
                 bit 7, a
                 jr z, seek_store
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 seek_store:
                 ld hl, seek_base
                 ld de, (io_pos)
@@ -688,8 +691,7 @@ sys_fstat:
                 jr z, fstat_go
                 cp KIND_DIR
                 jr z, fstat_go
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 fstat_go:
                 call take_inode
                 jp c, syscall_err
@@ -849,8 +851,7 @@ cwd_counted:
                 cp l
                 jr nc, cwd_fit
 cwd_small:
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 cwd_fit:
                 ld hl, (cwd_buf)
                 ld de, (cwd_need)
@@ -879,8 +880,7 @@ cwd_store_root:
                 ld a, l
                 cp 2
                 jr nc, cwd_root_write
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 cwd_root_write:
                 ld hl, (cwd_buf)
                 ld (hl), '/'
@@ -974,14 +974,12 @@ sys_open:
                 ld (open_flags), a
                 and 0C0h
                 jr z, open_known
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 open_known:
                 ld a, (open_flags)
                 and 3Fh
                 jr nz, open_excl
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 open_excl:
                 ld a, (open_flags)
                 and O_EXCL
@@ -989,9 +987,9 @@ open_excl:
                 ld a, (open_flags)
                 and O_CREATE
                 jr nz, open_class
-                ld a, EINVAL
-                jp syscall_err
+                jp sc_einval
 open_class:
+                rst HOOK_CALL
                 ld a, (open_flags)
                 and O_WRITE | O_CREATE | O_TRUNC | O_APPEND
                 jr nz, open_mut
