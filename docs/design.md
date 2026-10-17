@@ -323,6 +323,7 @@ Files and directories:
 | `2Eh` | pipe | `DE` pointer to 2 bytes | read fd, write fd |
 | `2Fh` | ioctl | `DE` fd, `HL` request, `IX` argument | `HL` request-specific |
 | `30h` | sync | | Flushes all write-back caches |
+| `31h` | poll | `DE` pointer to poll entries, `B` count (1-8), `HL` timeout in ticks (`0` = check only, `FFFFh` = forever) | `HL` entries ready |
 
 Time:
 
@@ -393,6 +394,107 @@ success. The slot is inode (2 bytes) then a 30-byte NUL-padded name.
 The argv block is `argc`, `envc`, then that many NUL-terminated strings.
 Both counts are 0 to 8. The shell passes `00 00`. The loader copies the block
 to `load + image + bss` and sets `SP` to `load + image + bss + stack + 192`.
+
+### Character devices
+
+Paths under `/dev/` name devices, not files. The kernel resolves them from a
+fixed table before any file system walk, and they appear in no directory.
+
+| Path | Device | Present |
+|------|--------|---------|
+| `/dev/con` | The task's controlling console | Always |
+| `/dev/ser0` | Serial board (section 9) | When the probe finds the UART |
+
+`open` of a device whose probe failed is `ENODEV`. `create`, `truncate`,
+`append` and `exclusive` on a device are `EINVAL`, and so are `seek` and
+`fstat`. `/dev/ser0` is exclusive: a second `open` while its open file exists
+is `EBUSY`. Descriptors that share the open file through `spawn` or `dup2`
+share the device.
+
+Reads and writes on character devices (console, serial, pipes):
+
+- `read` blocks until at least one byte is available, then returns what is
+  available, up to the length. It does not wait to fill the buffer. The
+  milestone 4 kernel waits for the full length on the console; milestone 5
+  switches to this rule. Programs that read one byte at a time see no
+  difference.
+- `read` returns 0 only at end of file: a pipe whose writers have all closed,
+  or `/dev/ser0` after a hangup (section 9).
+- `write` blocks until every byte is queued. Queued is not sent: serial output
+  drains from a ring under interrupts.
+- The console has no line discipline. It never echoes, and backspace, ENTER
+  and arrows arrive as bytes. Programs echo and edit lines themselves, as the
+  shell does.
+
+### Non-blocking I/O
+
+The open flag `nonblock` (`40h`, after `exclusive` `20h`) or the `FIONBIO`
+ioctl marks an open file non-blocking. The mode belongs to the open file, so
+descriptors that share it share the mode. On a non-blocking open file:
+
+- `read` with nothing available fails with `EAGAIN`. It never returns 0, so 0
+  still means end of file.
+- `write` queues what fits and returns that count. If nothing fits, it fails
+  with `EAGAIN`.
+- Files and directories ignore the mode: disk reads and writes always
+  complete.
+
+Descriptors 0-2 are shared with the parent. A program that wants a
+non-blocking console opens `/dev/con` with `nonblock`, which gives it a new
+open file, instead of changing descriptor 0 under the shell.
+
+### poll
+
+`poll` waits until one of up to 8 descriptors is ready or the timeout passes.
+`DE` points to `B` entries of 3 bytes:
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 | Descriptor |
+| 1 | 1 | Events wanted |
+| 2 | 1 | Events returned, written by the kernel |
+
+| Bit | Name | Meaning |
+|-----|------|---------|
+| `01h` | `POLLIN` | `read` would not block: data, or end of file |
+| `02h` | `POLLOUT` | `write` of at least one byte would not block |
+| `04h` | `POLLHUP` | Serial carrier lost, or a pipe has no writers. Reported whether wanted or not |
+| `08h` | `POLLERR` | The device recorded receive errors since the last `poll` (section 9). Reported whether wanted or not |
+| `10h` | `POLLNVAL` | The descriptor is not open. Reported, not an error |
+
+`poll` writes every returned byte, 0 where nothing applies, and returns as
+soon as one is nonzero or the timeout in ticks passes. `HL` is the number of
+entries with a nonzero returned byte, and 0 after a timeout, which is success.
+A count of 0 or more than 8 is `EINVAL`. Files and directories are always
+`POLLIN` and `POLLOUT`. A waiting task is blocked, so other tasks and the
+idle `HALT` run. Without multitasking the kernel waits with `HALT`, as a
+console `read` does.
+
+The usual event loop polls the console and the device for `POLLIN` with a
+timeout for the program's own timers, then reads each ready descriptor
+non-blocking until `EAGAIN`.
+
+### ioctl requests
+
+`ioctl` takes the request in `HL`. `IX` is a value or a pointer, as the table
+says. The high byte of the request is the device class. An unknown request,
+or one for another class, is `EINVAL`.
+
+| Request | Name | Applies to | `IX` | Result `HL` |
+|---------|------|------------|------|-------------|
+| `0001h` | `FIONBIO` | Devices, pipes | `0` blocking, `1` non-blocking | |
+| `0002h` | `FIONREAD` | Devices, pipes | | Bytes readable now |
+| `0003h` | `FIONSPACE` | Devices, pipes | | Bytes writable without blocking. The console never blocks: `FFFFh` |
+| `0004h` | `FIOFLUSH` | Devices, pipes | Bit 0 discards input, bit 1 discards queued output | |
+| `0101h` | `CON_GETMODE` | Console | | Mode bits |
+| `0102h` | `CON_SETMODE` | Console | Mode bits | |
+| `0103h` | `CON_SETFG` | Console | Task id on this console | |
+| `0104h` | `CON_GETSIZE` | Console | | `H` rows, `L` columns |
+| `0201h`-`0206h` | Serial | `/dev/ser0` | Section 9 | |
+
+Console mode bit 0 is raw: BREAK arrives as `03h` instead of terminating the
+foreground task. The other bits are 0. The mode belongs to the console, not
+the open file, and the shell sets it back to 0 after every `wait`.
 
 ### Error codes
 
@@ -773,6 +875,145 @@ TCP/IP is offloaded to the W5100 rather than run on the Z80: a software stack
 would cost 10-15 KiB and most of the CPU. The modem bridge comes first because
 it gives network access with only a serial driver.
 
+### Serial board
+
+The Model III RS-232-C board: a TR1602 UART and a BR1941 baud rate generator.
+The bits below follow the Model III Technical Reference Manual. Verify them
+against the datasheets and heh8080 before the driver depends on them.
+
+| Port | IN | OUT |
+|------|----|-----|
+| `E8h` | Modem status: bit 7 CTS, 6 DSR, 5 DCD, 4 RI | UART master reset (any value) |
+| `E9h` | Board configuration switches | Baud rate: bits 0-3 receive, bits 4-7 transmit |
+| `EAh` | UART status: bit 7 data received, 6 transmit holding register empty, 5 overrun, 4 framing error, 3 parity error | UART control: bit 0 DTR, 1 RTS, 2 break, 3 parity inhibit, 4 stop bits, 5-6 word length, 7 even parity |
+| `EBh` | Received byte; reading clears data received | Byte to transmit |
+
+`E0h` has three serial sources, with the timer's mask and active-low status
+convention: bit 4 transmit holding register empty, bit 5 data received, bit 6
+receive error. The probe resets the UART and reads `EAh`: bit 7 clear and bit
+6 set means a board is present. An absent board reads `FFh`.
+
+Baud codes set both nibbles of `E9h`; the driver always uses one rate in both
+directions:
+
+| Code | Rate | Code | Rate | Code | Rate | Code | Rate |
+|------|------|------|------|------|------|------|------|
+| `0` | 50 | `4` | 150 | `8` | 1800 | `C` | 4800 |
+| `1` | 75 | `5` | 300 | `9` | 2000 | `D` | 7200 |
+| `2` | 110 | `6` | 600 | `A` | 2400 | `E` | 9600 |
+| `3` | 134.5 | `7` | 1200 | `B` | 3600 | `F` | 19200 |
+
+Driver:
+
+- Interrupt driven in both directions. `open` allocates two arena pages: a
+  receive ring and a transmit ring of 255 usable bytes each. The last `close`
+  frees them.
+- The UART holds one received byte, so the ISR reads `EBh` before any timer
+  work. The whole ISR, timer path included, must finish within one character
+  time: about 1 ms (2,000 T-states) at 9600 baud, half that at 19200. 9600 is
+  the recommended rate.
+- RTS/CTS flow control, on by default: RTS drops when the receive ring holds
+  192 bytes and rises again at 64. The transmitter waits while CTS is low.
+- A sector transfer keeps interrupts off for about 8 ms (section 5), about
+  eight characters at 9600 baud. Before each transfer the floppy driver drops
+  RTS, waits two character times with interrupts on so the ISR takes anything
+  in flight, transfers, and restores RTS. Without flow control, serial input
+  during disk access is lost and counted as overruns.
+- Receive errors increment the counters below and set `POLLERR`. A byte with
+  a framing or parity error is still stored.
+- `open` raises DTR and RTS, no sooner than 100 ms after the last `close`
+  dropped DTR. The last `close` waits up to 2 s for the transmit ring to
+  drain, then drops DTR, which hangs up a modem set to `&D2`.
+
+Hangup: with the `dcd` flag set, a falling DCD marks the device hung up.
+Bytes already received stay readable; after them `read` returns 0, `poll`
+reports `POLLHUP` and `write` is `EIO`. The state clears when DCD rises. The
+flag is off by default, so a program can talk to a modem in command mode with
+no carrier, and turns it on after `CONNECT`.
+
+| Request | Name | `IX` | Result `HL` |
+|---------|------|------|-------------|
+| `0201h` | `SER_GETCFG` | Pointer to a 6-byte configuration | |
+| `0202h` | `SER_SETCFG` | Pointer to a 6-byte configuration; applied after the transmit ring drains | |
+| `0203h` | `SER_GETLINES` | | Bit 0 CTS, 1 DSR, 2 DCD, 3 RI |
+| `0204h` | `SER_SETDTR` | `0` drop, `1` raise | |
+| `0205h` | `SER_BREAK` | Ticks, 1-30; blocks while the break is sent | |
+| `0206h` | `SER_STATS` | Pointer to an 8-byte record; the counters reset | |
+
+Configuration record. Each first `open` starts from the defaults, and an
+out-of-range value is `EINVAL`:
+
+| Offset | Field | Values | Default |
+|--------|-------|--------|---------|
+| 0 | Baud code | `0`-`Fh` | `Eh`, 9600 |
+| 1 | Data bits | 5-8 | 8 |
+| 2 | Parity | 0 none, 1 odd, 2 even | 0 |
+| 3 | Stop bits | 1-2 | 1 |
+| 4 | Flags | Bit 0 RTS/CTS, bit 1 `dcd`, other bits 0 | `01h` |
+| 5 | Reserved | 0 | 0 |
+
+The statistics record is four 16-bit counters that stop at `FFFFh`:
+overruns, framing errors, parity errors and bytes dropped because the receive
+ring was full.
+
+### Modem bridge
+
+A Hayes-compatible "Wi-Fi modem", like the ESP8266 modems sold for retro
+machines, on the serial port. The OS has no driver for it: programs send AT
+commands through `/dev/ser0`. This section is the subset programs may rely on
+and heh8080 must implement. Real modems implement more.
+
+The bridge starts in command mode and returns to it after every hangup. In
+online mode, after `CONNECT`, bytes pass through unchanged in both
+directions: no telnet negotiation, no CR or LF translation, no escaping. A
+program that talks to a telnet server handles IAC itself. The bridge always
+uses RTS/CTS: it stops sending while RTS is low and drops CTS when its own
+buffer is full.
+
+A command line starts with `AT`, ends with CR (`0Dh`), ignores LF and case,
+and is at most 80 characters. Several commands may share one `AT`, and a dial
+must come last.
+
+| Command | Effect |
+|---------|--------|
+| `AT` | `OK` |
+| `ATZ` | Restore the defaults below, `OK` |
+| `ATE0`, `ATE1` | Command echo off, on (default on) |
+| `ATV0`, `ATV1` | Numeric, verbose results (default verbose) |
+| `ATQ0`, `ATQ1` | Results sent, suppressed (default sent) |
+| `AT&C0`, `AT&C1` | DCD always on, DCD follows the connection (default `&C1`) |
+| `AT&D0`, `AT&D2` | Ignore DTR, DTR drop hangs up (default `&D2`) |
+| `ATDT host:port` | Open a TCP connection. `ATD` and `ATDP` do the same. The host is a DNS name or dotted IPv4 address of up to 63 characters; the port is decimal, 23 when omitted |
+| `ATH`, `ATH0` | Close the connection |
+| `ATO` | Return to online mode |
+| `ATI` | Identification lines, then `OK` |
+
+Verbose results are CR LF, the text, CR LF. Numeric results are the code and
+CR.
+
+| Code | Text | Meaning |
+|------|------|---------|
+| 0 | `OK` | Command done |
+| 1 | `CONNECT` | Connection open. Online mode starts after the result. A rate may follow (`CONNECT 9600`), so programs match the prefix |
+| 3 | `NO CARRIER` | Connection refused, name lookup failed, or the connection closed |
+| 4 | `ERROR` | Unknown command or bad syntax |
+| 8 | `NO ANSWER` | No connection within 30 s |
+
+Escape: one second with nothing sent, `+++`, and one more second with nothing
+sent returns to command mode with the connection open, then `OK`. `ATO` goes
+back online and `ATH` closes it. The guard times keep `+++` inside data safe.
+
+When the remote side closes, or DTR drops under `&D2`, the bridge closes the
+connection, drops DCD under `&C1`, sends `NO CARRIER` and returns to command
+mode. A program with `dcd` set may see end of file before or after the
+`NO CARRIER` bytes, and treats either one as the end of the session. Because
+the last `close` of `/dev/ser0` drops DTR, every program starts with the
+bridge in command mode. A program begins with `ATE0V1` and waits for `OK`.
+
+heh8080's bridge opens real TCP connections from the host and paces bytes at
+the configured baud rate, so end-to-end tests can dial a listener the test
+starts on `127.0.0.1`.
+
 ## 10. Toolchain and testing
 
 - Kernel and boot sector: Z80 assembly (sjasmplus).
@@ -880,7 +1121,8 @@ these:
    with no `/bin/sh` halts after the banner and does not echo.
 4. Writable C5FS, `fsck`, core commands (`ls cp mv rm mkdir cat more date`),
    a full-screen editor.
-5. Multitasking, virtual consoles, pipes, BREAK handling.
+5. Multitasking, virtual consoles, pipes, BREAK handling, `/dev/con`,
+   non-blocking descriptors, `poll`, the generic and console ioctls.
 6. Serial driver and modem bridge (heh8080 expansion), terminal program.
 7. Virtual hard disk, partitions, clock.
 8. W5100 network driver, sockets, `telnet`, `get` (HTTP), time sync.
