@@ -1,5 +1,3 @@
-; Present-board integration test; exits 100 when the port behaves per contract.
-
                 include "cp500.inc"
 
                 org ORIGIN
@@ -83,7 +81,8 @@ sm_fill:
                 rst 08h
                 jp c, exit_a
                 ld c, SYS_CLOSE
-                ld e, (ser_fd)
+                ld a, (ser_fd)
+                ld e, a
                 ld d, 0
                 rst 08h
                 jp c, exit_a

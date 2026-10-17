@@ -175,7 +175,7 @@ QUANTUM_TICKS       equ 2
 EXIT_KILLED         equ 0FFh
 
 CH_KEY              equ 1
-CH_TICK             equ 2               ; dev_isr wakes this every timer tick when /sys/dev is loaded
+CH_TICK             equ 2
 CH_CHILD            equ 3
 CH_SER              equ 4
 CH_PIPE             equ 8               ; + pipe
@@ -192,7 +192,6 @@ F_HL                equ 12
 F_AF                equ 18
 F_PC                equ 20
 F_DE                equ 14
-F_BC                equ 16
 F_C                 equ 16
 F_B                 equ 17
 FRAME_SIZE          equ 22

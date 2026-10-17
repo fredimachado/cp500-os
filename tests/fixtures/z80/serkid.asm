@@ -1,5 +1,3 @@
-; Child of serboard: shared serial fd 3, second open is EBUSY.
-
                 include "cp500.inc"
 
                 org ORIGIN

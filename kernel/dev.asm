@@ -1,8 +1,6 @@
-; /sys/dev — device table, poll, and RST hook targets.
-
                 include "kernel.sym"
 
-SER_SIZE            equ 35
+SER_SIZE            equ 31
 SER_REC             equ DEV_BASE + DEV_PAGES * 256 - SER_SIZE
 SER                 equ SER_REC
 
@@ -43,13 +41,6 @@ hook_jumps:
                 jp dev_call
                 jp dev_close
 
-DR_NAME             equ 0
-DR_OPEN             equ 2
-DR_READ             equ 4
-DR_WRITE            equ 6
-DR_IOCTL            equ 8
-DR_CLOSE            equ 10
-DR_REVENTS          equ 12
 DR_SIZE             equ 14
 
 dev_table:

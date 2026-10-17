@@ -1,5 +1,3 @@
-; /bin/term — Hayes modem terminal (milestone 6).
-
                 include "cp500.inc"
 
                 org ORIGIN

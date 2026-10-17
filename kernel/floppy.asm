@@ -9,7 +9,6 @@ floppy_read:
 floppy_write:
                 ld a, FDC_CMD_WRITE
 
-; HOOK_DISK may splice this routine's return; keep one final RET on every exit.
 floppy_io:
                 rst HOOK_DISK
                 ld (io_cmd), a

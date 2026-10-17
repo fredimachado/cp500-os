@@ -1,5 +1,3 @@
-; /lib/sertest.c5x — serial open and ioctl probes for milestone 6 tests.
-
                 include "cp500.inc"
 
                 org ORIGIN

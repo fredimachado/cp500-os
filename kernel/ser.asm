@@ -1,5 +1,3 @@
-; Serial driver — sole writer of SER and ports E8h–EBh (and E0h after boot).
-
 S_PHASE             equ 0
 S_RXPG              equ 1
 S_TXPG              equ 2
@@ -18,7 +16,6 @@ S_BRK               equ 19
 S_LINGER            equ 20
 S_STATS             equ 21
 S_DELAY             equ 29
-S_SPLICE            equ 31
 PH_CLOSED           equ 0
 PH_OPEN             equ 1
 PH_LINGER           equ 2
@@ -304,17 +301,17 @@ ser_ioctl:
                 cp SER_CLASS
                 jp nz, dev_err_einval
                 ld a, c
-                cp 1
+                cp SER_GETCFG & 0ffh
                 jp z, si_getcfg
-                cp 2
+                cp SER_SETCFG & 0ffh
                 jp z, si_setcfg
-                cp 3
+                cp SER_GETLINES & 0ffh
                 jp z, si_lines
-                cp 4
+                cp SER_SETDTR & 0ffh
                 jp z, si_dtr
-                cp 5
+                cp SER_BREAK & 0ffh
                 jp z, si_break
-                cp 6
+                cp SER_STATS & 0ffh
                 jp z, si_stats
                 jp dev_err_einval
 si_getcfg:
@@ -437,7 +434,6 @@ si_stats:
                 ld (hl), a
                 inc hl
                 dec bc
-                jr si_stz
 si_stz:
                 ld (hl), a
                 inc hl
@@ -468,8 +464,6 @@ ser_close:
                 pop af
                 ret po
                 ei
-                ret
-ser_close_po:
                 ret
 
 ser_revents:
@@ -848,25 +842,32 @@ cfg_check:
 cfg_bits:
                 ld a, (SER + S_CFG + CFG_DATA)
                 sub 5
+                ld b, SER_CT_WLEN_SHIFT
+cb_shift:
+                add a, a
+                djnz cb_shift
                 ld c, a
                 ld a, (SER + S_CFG + CFG_STOP)
                 dec a
-                rlca
-                or c
+                jr z, cb_parity
+                ld a, c
+                or SER_CT_STOP2
                 ld c, a
+cb_parity:
                 ld a, (SER + S_CFG + CFG_PARITY)
                 or a
-                jr z, cb_p0
+                jr z, cb_none
                 dec a
-                jr z, cb_p1
+                jr z, cb_done
                 ld a, c
                 or SER_CT_EVEN
                 ld c, a
-cb_p1:
+                jr cb_done
+cb_none:
                 ld a, c
                 or SER_CT_NOPARITY
                 ld c, a
-cb_p0:
+cb_done:
                 ld a, c
                 ret
 
@@ -938,9 +939,9 @@ ser_disk:
                 call delay2
                 pop af
                 pop hl
-                ex (sp), hl
                 ld de, ser_disk_post
                 push de
+                push hl
                 ret
 sd_ret:
                 pop af

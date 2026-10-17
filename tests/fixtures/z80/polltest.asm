@@ -1,5 +1,3 @@
-; /lib/polltest.c5x — poll syscall probes (arg: 0|t|k|p|n|b|w|f).
-
                 include "cp500.inc"
 
                 org ORIGIN
