@@ -92,6 +92,8 @@ CURSOR_BLOCK        equ 0BFh
 K_DOWN              equ 1               ; keyboard table only, never a ring byte
 K_LEFT              equ 2
 K_RIGHT             equ 3
+K_BREAK             equ 4
+K_CLEAR             equ 5
 
 VOL                 equ 4062h
 VOL_SIDES           equ VOL + 0
@@ -120,10 +122,13 @@ T_PARENT            equ 40B8h
 T_ARG               equ 40C0h           ; 8 words
 PIPE                equ 40D0h           ; 4 x state, page, head, tail
 CON_STATE           equ 40E0h           ; per console: 0 no shell, 1 shell started
-CON_PLANE           equ 40E2h
-CON_MODE            equ 40E4h
-CON_FG              equ 40E6h
+CON_PLANE           equ 40E2h           ; plane page per console, 3Ch while shown
+CON_FG              equ 40E4h           ; foreground task per console, 0 none
+CON_MODE            equ 40E6h           ; CON_FG + 2
 
+KEYMAP              equ 0F000h          ; /sys/keymap: unshifted and shifted 8x8 tables
+KBD_UNSHIFTED       equ KEYMAP
+KBD_SHIFTED         equ KEYMAP + 64
 SHADOW1             equ 0F100h          ; console 1's hidden screen
 KPAGE               equ 0F500h
 OWNER               equ KPAGE           ; owner of page ARENA_FIRST + i: 0 free, slot, 0FFh kernel
@@ -208,7 +213,7 @@ WR_SYNC             equ WR_BASE + 15
 WR_TIME             equ WR_BASE + 18
 WR_SET              equ WR_BASE + 21
 ARENA_FIRST         equ 62h
-ARENA_LAST          equ 0F0h            ; last page programs and pipes may use
+ARENA_LAST          equ 0EFh            ; last page programs and pipes may use
 KERNEL_RESERVE      equ 192
 PATH_MAX            equ 127
 ARGV_MAX            equ 128

@@ -12,6 +12,7 @@ kv = kv + kv_bytes
                 org KERNEL_BASE
 
                 include "load.asm"
+                include "init.asm"
 
                 assert $ <= KERNEL_BASE + 256, "kernel loader exceeds one block"
                 ds KERNEL_BASE + 256 - $, 0
@@ -29,11 +30,16 @@ km_sides:
                 ld sp, BOOT_STACK_TOP
                 call sys_init
                 ei
+                call c5fs_mount
+                push af
+                call nc, load_sys
+                xor a
+                ld (CUR_PHASE), a
+                ld (BLINK_DIV), a
                 ld hl, banner
                 call console_puts
-                call c5fs_mount
+                pop af
                 jr c, km_mount
-                call load_wr
                 xor a
                 ld (KBUSY), a
                 jp init_task

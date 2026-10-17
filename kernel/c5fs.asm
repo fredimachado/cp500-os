@@ -1236,36 +1236,48 @@ walk_fold_add:
                 kvar wr_child, 2
 
 wr_path:        db "/sys/wr", 0
+keymap_path:    db "/sys/keymap", 0
 
-; Copies /sys/wr to WR_BASE. A missing file leaves writes returning EIO.
-load_wr:
+; Copies /sys/wr to WR_BASE and /sys/keymap to KEYMAP. Without /sys/wr writes
+; return EIO; without /sys/keymap every key reads as no key.
+load_sys:
                 ld de, wr_path
+                ld hl, WR_BASE
+                ld b, 8
+                call load_file
+                jr c, load_keymap
+                ld a, 1
+                ld (wr_ready), a
+load_keymap:
+                ld de, keymap_path
+                ld hl, KEYMAP
+                ld b, 1
+; DE = path, HL = destination, B = pages it may fill. Carry when the file is
+; missing, empty or too big.
+load_file:
+                push hl
+                push bc
                 call c5fs_walk
+                pop bc
+                pop de
                 ret c
                 ld a, (INO_BUF + INO_SIZE + 2)
                 or a
-                jr nz, load_wr_bad
+                scf
+                ret nz
                 ld hl, (INO_BUF + INO_SIZE)
                 ld a, h
-                cp 8
-                jr nc, load_wr_bad
-                ld a, h
+                cp b
+                ccf
+                ret c
                 or l
-                jr z, load_wr_bad
+                scf
+                ret z
                 push hl
+                pop ix
                 ld hl, 0
                 ld (fs_acc), hl
                 ld (fs_acc + 2), hl
-                ld hl, WR_BASE
+                ex de, hl
                 ld de, fs_acc
-                pop ix
-                call c5fs_read
-                ret c
-                ld a, 1
-                ld (wr_ready), a
-                xor a
-                ret
-load_wr_bad:
-                ld a, EIO
-                scf
-                ret
+                jp c5fs_read

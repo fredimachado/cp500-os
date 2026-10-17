@@ -1,43 +1,24 @@
-; Software cursor on the 64 by 16 video plane. The block glyph is BFh.
-
-console_init:
-                ld hl, VIDEO_BASE
-                ld de, VIDEO_BASE + 1
-                ld bc, VIDEO_SIZE - 1
-                ld (hl), ' '
-                ldir
-                xor a
-                ld (CUR_ROW), a
-                ld (CUR_COL), a
-                ld (CUR_PHASE), a
-                ld (CUR_SHOWN), a
-                ld (ANSI_STATE), a
-                ld (ANSI_N), a
-                ld (ANSI_P0), a
-                ld (ANSI_P1), a
-                ld (ANSI_ACC), a
-                ld (ANSI_BAD), a
-                ld (BLINK_DIV), a
-                ld a, ' '
-                ld (CUR_UNDER), a
-                xor a
-                out (PORT_VIDEO), a
-                ret
+; Software cursor on a 64 by 16 plane. The block glyph is BFh. Each console has
+; a plane and 14 state bytes; CUR_ROW..BLINK_DIV hold the bound console's.
 
 console_puts:
                 ld a, (hl)
                 or a
                 ret z
                 push hl
+                ld d, 0
                 call console_putc
                 pop hl
                 inc hl
                 jr console_puts
 
-; A = byte. Brackets the cursor cell so the ISR cannot redraw it mid-update.
+; A = byte, D = console. Brackets the cursor cell so the ISR cannot redraw it mid-update.
 console_putc:
                 di
                 ld c, a
+                ld a, (CON_BOUND)
+                cp d
+                call nz, con_bind
                 ld a, (ANSI_STATE)
                 or a
                 jr z, con_ground
@@ -86,8 +67,10 @@ con_row_down:
                 inc a
                 cp VIDEO_ROWS
                 jr c, con_row_ok
-                ld hl, VIDEO_BASE + VIDEO_COLS
-                ld de, VIDEO_BASE
+                call con_base
+                ld d, h
+                ld e, l
+                ld l, VIDEO_COLS
                 ld bc, VIDEO_SIZE - VIDEO_COLS
                 ldir
                 ld a, VIDEO_ROWS - 1
@@ -370,32 +353,35 @@ con_ed:
                 jr z, con_ed_forward
                 dec a
                 jr z, con_ed_back
-                ld hl, VIDEO_BASE
+                call con_base
                 ld bc, VIDEO_SIZE
                 call con_fill
                 jr con_ed_done
 con_ed_forward:
                 call con_addr
                 push hl
-                ld hl, VIDEO_BASE + VIDEO_SIZE
+                call con_base
+                add a, VIDEO_SIZE >> 8
+                ld h, a
                 pop de
                 or a
                 sbc hl, de
                 ld b, h
                 ld c, l
-                ld h, d
-                ld l, e
+                ex de, hl
                 call con_fill
                 jr con_ed_done
 con_ed_back:
+                call con_base
+                push hl
                 call con_addr
-                ld de, VIDEO_BASE
+                pop de
                 or a
                 sbc hl, de
                 inc hl
                 ld b, h
                 ld c, l
-                ld hl, VIDEO_BASE
+                ex de, hl
                 call con_fill
 con_ed_done:
                 ld a, ' '
@@ -535,11 +521,126 @@ con_row_only:
                 add hl, hl
                 add hl, hl
                 add hl, hl
-                ld de, VIDEO_BASE
-                add hl, de
+                ld a, (CON_PLANE_CUR)
+                add a, h
+                ld h, a
+                ret
+
+; HL = the bound plane, A = its page.
+con_base:
+                ld a, (CON_PLANE_CUR)
+                ld h, a
+                ld l, 0
+                ret
+
+; D = console. Interrupts off. Keeps BC, DE and HL.
+con_bind:
+                push bc
+                push hl
+                push de
+                call con_unbind
+                pop de
+                push de
+                ld a, d
+                ld (CON_BOUND), a
+                call con_block
+                ld de, CUR_ROW
+                ld bc, 14
+                ldir
+                ld a, (CON_BOUND)
+                add a, CON_PLANE & 0FFh
+                ld l, a
+                ld h, CON_PLANE >> 8
+                ld a, (hl)
+                ld (CON_PLANE_CUR), a
+                pop de
+                pop hl
+                pop bc
+                ret
+
+; Saves the bound console's state and unbinds it.
+con_unbind:
+                ld a, (CON_BOUND)
+                inc a
+                ret z
+                dec a
+                call con_block
+                ex de, hl
+                ld hl, CUR_ROW
+                ld bc, 14
+                ldir
+                ld a, 0FFh
+                ld (CON_BOUND), a
+                ret
+
+; A = console. HL = its saved state.
+con_block:
+                ld hl, CON_BLOCK
+                or a
+                ret z
+                ld l, (CON_BLOCK + 14) & 0FFh
+                ret
+
+; A = console. ISR only. Swaps it into video RAM, drops typed-ahead keys, and
+; asks init for a shell the first time the console is shown.
+con_show:
+                cp NCON
+                ret nc
+                ld hl, CON_ACTIVE
+                cp (hl)
+                ret z
+                ld e, a
+                push de
+                call con_unbind
+                pop de
+                ld a, e
+                add a, CON_PLANE & 0FFh
+                ld l, a
+                ld h, CON_PLANE >> 8
+                ld d, (hl)
+                ld (hl), VIDEO_BASE >> 8
+                ld a, (CON_ACTIVE)
+                add a, CON_PLANE & 0FFh
+                ld l, a
+                ld (hl), d
+                ld a, e
+                ld (CON_ACTIVE), a
+                ld e, 0
+                ld hl, VIDEO_BASE
+                ld bc, VIDEO_SIZE
+con_swap:
+                ld a, (de)
+                ldi
+                dec hl
+                ld (hl), a
+                inc hl
+                jp pe, con_swap
+                ld a, (KBD_HEAD)
+                ld (KBD_TAIL), a
+                xor a
+                ld (KBD_PREFIX), a
+                ld a, (CON_ACTIVE)
+                ld e, a
+                add a, CON_STATE & 0FFh
+                ld l, a
+                ld h, CON_STATE >> 8
+                ld a, (hl)
+                or a
+                ret nz
+                inc (hl)
+                ld a, e
+                inc a
+                ld hl, CON_WANT
+                or (hl)
+                ld (hl), a
                 ret
 
 console_blink:
+                ld a, (CON_ACTIVE)
+                ld d, a
+                ld a, (CON_BOUND)
+                cp d
+                call nz, con_bind
                 ld hl, BLINK_DIV
                 inc (hl)
                 ld a, (hl)

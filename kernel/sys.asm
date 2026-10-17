@@ -32,57 +32,48 @@ sys_init:
                 ld hl, KPAGE
                 ld bc, 2FFh
                 call fill
+                out (PORT_NMI), a
+                out (PORT_VIDEO), a
                 inc a
                 ld (KBUSY), a
                 ld (vol_sb), a
                 ld (T_STATE), a
                 ld (CON_WANT), a
+                ld (CON_STATE), a
+                ld hl, (SHADOW1 & 0FF00h) | (VIDEO_BASE >> 8)
+                ld (CON_PLANE), hl
+                ld hl, VIDEO_BASE & 0FF00h
+                ld (CON_BOUND), hl
                 ld hl, init_rec
                 ld de, TASK
                 ld bc, 16
                 ldir
                 ld hl, OFILE
                 ld c, 0
+init_con:
                 ld a, KIND_CON_IN
                 call init_ofile
                 ld a, KIND_CON_OUT
                 call init_ofile
                 call init_ofile
+                inc c
+                bit 1, c
+                jr z, init_con
                 ld a, 0FFh
                 ld (KBD_REP_ROW), a
-
-                call console_init
+                ld a, ' '
+                ld (CUR_UNDER), a
+                ld (CON_BLOCK + 14 + CUR_UNDER - CUR_ROW), a
+                ld hl, VIDEO_BASE
+                ld bc, VIDEO_SIZE - 1
+                call fill
+                ld hl, SHADOW1
+                ld bc, VIDEO_SIZE - 1
+                call fill
                 in a, (PORT_TIMER_ACK)
-                xor a
-                out (PORT_NMI), a
                 ld a, IRQ_TIMER
                 out (PORT_IRQ), a
                 ret
-
-nmi:
-                retn
-
-; HL = start, BC = count - 1, A = byte.
-fill:
-                ld (hl), a
-                ld d, h
-                ld e, l
-                inc de
-                ldir
-                ret
-
-; A = kind, C = console. Fills the ofile at HL with one reference and steps HL.
-init_ofile:
-                ld (hl), a
-                inc l
-                ld (hl), 1
-                inc l
-                ld (hl), c
-                ld de, OF_STRIDE - 2
-                add hl, de
-                ret
-
-init_rec:       db 0, 0, 0, 0, 0, 0, 0, 1, 2, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 1, 0
 
 ; RST 08h. A switch before KBUSY is set is an ordinary preemption of user code.
 syscall:
@@ -177,7 +168,7 @@ sc_table:
                 dw sys_open, sys_close, sys_read, sys_write
                 dw sys_seek, sys_stat, sys_fstat, sys_readdir
                 dw sys_mkdir, sys_remove, sys_rename, sys_chdir
-                dw sys_getcwd, sc_einval, sys_pipe, sc_einval
+                dw sys_getcwd, sc_einval, sys_pipe, sys_ioctl
                 assert $ - sc_table == (SYS_IOCTL + 1) * 2
 
 ; HL = resident routine. It returns carry and A, or a result in HL.
@@ -422,10 +413,16 @@ read_bad:
 
 ; Fills all io_len bytes. Interrupts stay off from the empty test to the block.
 read_con:
+                inc hl
+                inc hl
+                ld b, (hl)
                 call io_empty
                 ld hl, 0
                 ld (io_got), hl
                 di
+                ld a, (CON_ACTIVE)
+                cp b
+                jr nz, read_round
 read_store:
                 call kbd_get
                 jr nc, read_round
@@ -505,22 +502,10 @@ read_file:
                 call c5fs_read
                 jp c, syscall_err
                 push hl
-                ld de, (io_pos)
-                ld a, (de)
-                add a, l
-                ld (de), a
-                inc de
-                ld a, (de)
-                adc a, h
-                ld (de), a
-                inc de
-                ld a, (de)
-                adc a, 0
-                ld (de), a
-                inc de
-                ld a, (de)
-                adc a, 0
-                ld (de), a
+                ld b, h
+                ld c, l
+                ld hl, (io_pos)
+                call add32
                 pop hl
                 jp syscall_ok
 
@@ -547,6 +532,9 @@ write_file:
                 ld hl, WR_WRITE
                 jp wr_go
 write_con:
+                inc hl
+                inc hl
+                ld e, (hl)
                 ld hl, (io_buf)
                 ld bc, (io_len)
 write_loop:
@@ -557,13 +545,64 @@ write_loop:
                 inc hl
                 push hl
                 push bc
+                push de
+                ld d, e
                 call console_putc
+                pop de
                 pop bc
                 pop hl
                 dec bc
                 jr write_loop
 write_done:
                 ld hl, (io_len)
+                jp syscall_ok
+
+; DE = console fd, HL = request, IX = argument. HL = the previous value.
+sys_ioctl:
+                push hl
+                call fd_get
+                pop bc
+                jp c, syscall_err
+                dec a
+                cp KIND_CON_OUT
+                jp nc, sc_einval
+                inc hl
+                inc hl
+                ld a, (hl)
+                add a, CON_FG & 0FFh
+                ld l, a
+                ld h, CON_FG >> 8
+                push ix
+                pop de
+                ld a, b
+                or d
+                jp nz, sc_einval
+                dec c
+                jr z, ioctl_fg
+                dec c
+                jp nz, sc_einval
+                inc l
+                inc l
+                ld a, e
+                and ~CON_RAW
+                jp nz, sc_einval
+                jr ioctl_set
+ioctl_fg:
+                ld a, e
+                cp TASK_SLOTS
+                jp nc, sc_einval
+                push hl
+                call t_state_a
+                ld a, (hl)
+                pop hl
+                dec a
+                cp TS_DYING
+                jp nc, sc_einval
+ioctl_set:
+                ld a, (hl)
+                ld (hl), e
+                ld l, a
+                ld h, 0
                 jp syscall_ok
 
 sys_seek:
@@ -1339,28 +1378,9 @@ ld_exact:
                 ret c
                 or a
                 sbc hl, bc
-                jr z, ld_exact_adv
+                jr z, ld_pos_add
                 ld a, EIO
                 scf
-                ret
-ld_exact_adv:
-                ld hl, ld_pos
-                ld a, (hl)
-                add a, c
-                ld (hl), a
-                inc hl
-                ld a, (hl)
-                adc a, b
-                ld (hl), a
-                inc hl
-                ld a, (hl)
-                adc a, 0
-                ld (hl), a
-                inc hl
-                ld a, (hl)
-                adc a, 0
-                ld (hl), a
-                xor a
                 ret
 
 ld_reloc:
@@ -1418,6 +1438,8 @@ ld_reloc_n:
 
 ld_pos_add:
                 ld hl, ld_pos
+; HL = 32-bit value, BC = addend. A = 0, carry clear.
+add32:
                 ld a, (hl)
                 add a, c
                 ld (hl), a
@@ -1433,6 +1455,7 @@ ld_pos_add:
                 ld a, (hl)
                 adc a, 0
                 ld (hl), a
+                xor a
                 ret
 
 ; HL = first bitmap byte, BC = count. The bytes stay in BLK_BUF until this returns.

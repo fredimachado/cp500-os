@@ -138,9 +138,9 @@ kbd_lookup:
                 push bc
                 ld a, (KBD_ACCEPTED + 7)
                 and 1
-                ld hl, kbd_unshifted
+                ld hl, KBD_UNSHIFTED
                 jr z, kbd_picked
-                ld hl, kbd_shifted
+                ld hl, KBD_SHIFTED
 kbd_picked:
                 ld a, c
                 add a, a
@@ -152,13 +152,59 @@ kbd_picked:
                 add hl, de
                 ld a, (hl)
                 pop bc
-                cp 0FFh
+                or a
                 scf
                 ret z
-                cp 4
+                cp K_BREAK
                 jr c, kbd_arrow
-                call kbd_put
+                push bc
+                call kbd_key
+                pop bc
+                ret
+
+; A = table byte. Carry when the key must not auto-repeat.
+kbd_key:
+                ld hl, KBD_PREFIX
+                ld e, (hl)
+                ld (hl), 0
+                cp K_CLEAR
+                jr nz, kbd_not_clear
+                ld (hl), a
+                scf
+                ret
+kbd_not_clear:
+                ld c, a
+                ld a, (CON_ACTIVE)
+                add a, CON_MODE & 0FFh
+                ld l, a
+                ld a, c
+                cp K_BREAK
+                jr z, kbd_break
+                ld a, e
+                cp K_CLEAR
+                ld a, c
+                jp nz, kbd_put
+                sub '1'
+                cp NCON
+                ld a, c
+                jp nc, kbd_put
+                sub '1'
+                call con_show
+                scf
+                ret
+
+; HL = CON_MODE of the shown console. Raw mode reads BREAK as a key;
+; otherwise it ends the foreground task, if there is one.
+kbd_break:
+                bit 0, (hl)
+                ld a, KEY_BREAK
+                jp nz, kbd_put
+                dec l
+                dec l
+                ld a, (hl)
                 or a
+                call nz, kill_mark
+                scf
                 ret
 
 kbd_arrow:
@@ -251,26 +297,6 @@ kbd_get:
                 kvar kbd_now, 8
                 kvar kbd_fresh, 8
                 kvar kbd_replaced, 1
-
-kbd_unshifted:
-                db '@', 'a', 'b', 'c', 'd', 'e', 'f', 'g'
-                db 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o'
-                db 'p', 'q', 'r', 's', 't', 'u', 'v', 'w'
-                db 'x', 'y', 'z', 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
-                db '0', '1', '2', '3', '4', '5', '6', '7'
-                db '8', '9', ':', ';', ',', '-', '.', '/'
-                db 0Dh, 0FFh, 0FFh, '[', K_DOWN, K_LEFT, K_RIGHT, ' '
-                db 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
-
-kbd_shifted:
-                db '@', 'A', 'B', 'C', 'D', 'E', 'F', 'G'
-                db 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O'
-                db 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W'
-                db 'X', 'Y', 'Z', 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
-                db 0FFh, '!', '"', '#', '$', '%', '&', "'"
-                db '(', ')', '*', '+', '<', '=', '>', '?'
-                db 0Dh, 0FFh, 0FFh, 0FFh, K_DOWN, K_LEFT, K_RIGHT, ' '
-                db 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
 
 kbd_arrow_final:
                 db 'B', 'D', 'C'

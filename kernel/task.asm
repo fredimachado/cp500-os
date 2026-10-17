@@ -363,6 +363,21 @@ exit_orphan_back:
 exit_orphan_next:
                 inc l
                 djnz exit_orphan
+                ld l, CON_FG & 0FFh
+                ld b, NCON
+exit_fg:
+                ld a, (hl)
+                cp c
+                jr nz, exit_fg_next
+                ld (hl), 0
+                inc l
+                inc l
+                ld (hl), 0
+                dec l
+                dec l
+exit_fg_next:
+                inc l
+                djnz exit_fg
                 di
                 pop de
                 ld a, c
@@ -376,7 +391,7 @@ exit_orphan_next:
                 inc a
                 jr z, exit_done
                 dec a
-                jr z, exit_done
+                jr z, exit_shell
                 ld (hl), TS_ZOMBIE
                 ld a, c
                 add a, a
@@ -386,6 +401,10 @@ exit_orphan_next:
                 ld a, CH_CHILD
                 call wake
 exit_done:
+                jp sched_pick
+; Only task 1, console 0's shell, and console 1's shells have init as parent.
+exit_shell:
+                ld (CON_STATE + 1), a
                 jp sched_pick
 exit_halt:
                 di
@@ -465,29 +484,6 @@ sys_yield:
                 ld h, a
                 ld l, a
                 jp syscall_ok
-
-; Task 0. Starts a shell for each console that wants one, else idles in HALT.
-init_task:
-                di
-                ld a, (CON_WANT)
-                or a
-                jr nz, init_spawn
-                ei
-                halt
-                jr init_task
-init_spawn:
-                xor a
-                ld (CON_WANT), a
-                ei
-                ld c, SYS_SPAWN
-                ld de, shell_path
-                ld hl, empty_argv
-                ld ix, 0
-                rst 08h
-                jr init_task
-
-shell_path:     db "/bin/sh", 0
-empty_argv:     db 0, 0
 
                 kvar spawn_tid, 1
                 kvar spawn_fd, 2

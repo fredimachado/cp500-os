@@ -5,6 +5,10 @@
                 org ORIGIN
 
 shell:
+                ld c, SYS_WAIT
+                ld de, 0FEh
+                rst 08h
+                jr nc, shell
                 ld c, SYS_WRITE
                 ld de, 1
                 ld hl, prompt_seq
@@ -182,9 +186,17 @@ spawn_line:
                 rst 08h
                 ret
 
-; HL = task id. A = its exit code.
+; HL = task id. Makes it the console's foreground task, so BREAK ends it, and
+; waits for it. A = its exit code. The kernel clears the foreground at exit.
 fg_wait:
-                ex de, hl
+                push hl
+                pop ix
+                ld c, SYS_IOCTL
+                ld de, 0
+                ld hl, IOCTL_SETFG
+                rst 08h
+                push ix
+                pop de
                 ld c, SYS_WAIT
                 rst 08h
                 ld a, l
