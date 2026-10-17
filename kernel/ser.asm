@@ -208,7 +208,8 @@ sr_copy:
                 cp c
                 jr nz, sr_hi
                 ld a, (SER + S_RXH)
-                sub (SER + S_RXT)
+                ld hl, SER + S_RXT
+                sub (hl)
                 cp SER_RX_LOW + 1
                 jr nc, sr_wait
                 ld hl, SER + S_HI_CLR
@@ -222,7 +223,8 @@ sr_hi:
                 or l
                 jr z, sr_done
                 ld a, (SER + S_RXH)
-                sub (SER + S_RXT)
+                ld hl, SER + S_RXT
+                sub (hl)
                 jr nz, sr_loop
 sr_wait:
                 call hung
@@ -328,7 +330,8 @@ si_setcfg:
                 jp c, dev_err_einval
                 di
                 ld a, (SER + S_TXH)
-                cp (SER + S_TXT)
+                ld hl, SER + S_TXT
+                cp (hl)
                 jr z, si_set_go
                 ei
                 ld a, CH_SER
@@ -473,7 +476,8 @@ ser_revents:
                 xor a
                 ld c, a
                 ld a, (SER + S_RXH)
-                sub (SER + S_RXT)
+                ld hl, SER + S_RXT
+                sub (hl)
                 jr z, sr_ev1
                 ld c, POLLIN
 sr_ev1:
@@ -486,7 +490,8 @@ sr_ev2:
                 call hung
                 jr nz, sr_ev3
                 ld a, (SER + S_TXH)
-                sub (SER + S_TXT)
+                ld hl, SER + S_TXT
+                sub (hl)
                 cp 255
                 jr z, sr_ev3
                 ld a, c
@@ -538,16 +543,19 @@ ser_rx:
                 call err_bump
 srx_ok:
                 ld a, (SER + S_RXH)
-                sub (SER + S_RXT)
+                ld hl, SER + S_RXT
+                sub (hl)
                 cp 255
                 jr z, srx_drop
                 push bc
                 ld a, (SER + S_RXH)
-                sub (SER + S_RXT)
+                ld hl, SER + S_RXT
+                sub (hl)
                 ld b, a
                 ld a, (SER + S_RXPG)
                 ld h, a
-                ld l, (SER + S_RXH)
+                ld a, (SER + S_RXH)
+                ld l, a
                 pop af
                 ld (hl), a
                 ld hl, SER + S_RXH
@@ -562,7 +570,8 @@ srx_wake:
                 and CFG_F_RTSCTS
                 jr z, srx_ret
                 ld a, (SER + S_RXH)
-                sub (SER + S_RXT)
+                ld hl, SER + S_RXT
+                sub (hl)
                 cp SER_RX_HIGH
                 jr c, srx_ret
                 ld a, (SER + S_HI_SET)
@@ -582,7 +591,8 @@ srx_drop:
 
 ser_tx:
                 ld a, (SER + S_TXH)
-                cp (SER + S_TXT)
+                ld hl, SER + S_TXT
+                cp (hl)
                 jr z, st_empty
                 ld a, (SER + S_BRK)
                 or a
@@ -596,13 +606,14 @@ ser_tx:
 st_send:
                 ld a, (SER + S_TXPG)
                 ld h, a
-                ld l, (SER + S_TXT)
+                ld a, (SER + S_TXT)
+                ld l, a
                 ld a, (hl)
                 out (PORT_SER_DATA), a
                 ld hl, SER + S_TXT
                 inc (hl)
                 ld a, (SER + S_TXH)
-                sub (SER + S_TXT)
+                sub (hl)
                 cp SER_TX_WAKE
                 jr nz, st_w0
                 ld a, CH_SER
@@ -647,7 +658,8 @@ st_brk:
                 ld (SER + S_LINGER), a
                 jr z, st_drop
                 ld a, (SER + S_TXH)
-                cp (SER + S_TXT)
+                ld hl, SER + S_TXT
+                cp (hl)
                 jr nz, st_lmask
                 ld a, 1
                 ld (SER + S_LINGER), a
@@ -687,7 +699,8 @@ st_dcd1:
                 call wake
 st_cts:
                 ld a, (SER + S_TXH)
-                cp (SER + S_TXT)
+                ld hl, SER + S_TXT
+                cp (hl)
                 ret z
                 call mask_out
                 ret
@@ -726,7 +739,8 @@ mo_tx:
                 cp PH_CLOSED
                 jr z, mo_out
                 ld a, (SER + S_TXH)
-                cp (SER + S_TXT)
+                ld hl, SER + S_TXT
+                cp (hl)
                 jr z, mo_out
                 ld a, (SER + S_BRK)
                 or a

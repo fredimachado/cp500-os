@@ -9,7 +9,7 @@ SER                 equ SER_REC
                 org DEV_BASE
 
 dev_init:
-                ld hl, OWNER + (DEV_BASE >> 8)
+                ld hl, OWNER + ((DEV_BASE >> 8) - ARENA_FIRST)
                 ld b, DEV_PAGES
 di_own:
                 ld (hl), 0FFh
