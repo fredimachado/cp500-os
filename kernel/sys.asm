@@ -177,7 +177,7 @@ sc_table:
                 dw sys_open, sys_close, sys_read, sys_write
                 dw sys_seek, sys_stat, sys_fstat, sys_readdir
                 dw sys_mkdir, sys_remove, sys_rename, sys_chdir
-                dw sys_getcwd, sc_einval, sc_einval, sc_einval
+                dw sys_getcwd, sc_einval, sys_pipe, sc_einval
                 assert $ - sc_table == (SYS_IOCTL + 1) * 2
 
 ; HL = resident routine. It returns carry and A, or a result in HL.
@@ -243,8 +243,26 @@ ofile_release:
                 dec (hl)
                 dec hl
                 ret nz
+                ld a, (hl)
                 ld (hl), KIND_FREE
-                ret
+                sub KIND_PIPE_R
+                cp 2
+                ret nc
+                inc a
+                ld b, a
+                inc hl
+                inc hl
+                ld a, (hl)
+                jp pipe_end_closed
+
+; Ends the call with 0 when io_len is 0. Keeps HL.
+io_empty:
+                ld de, (io_len)
+                ld a, d
+                or e
+                ret nz
+                ex de, hl
+                jp syscall_ok
 
 ofile_of:
                 push de
@@ -390,6 +408,8 @@ sys_read:
                 jp c, syscall_err
                 cp KIND_CON_IN
                 jp z, read_con
+                cp KIND_PIPE_R
+                jp z, pipe_read
                 cp KIND_FILE
                 jp z, read_file
                 cp KIND_DIR
@@ -402,10 +422,7 @@ read_bad:
 
 ; Fills all io_len bytes. Interrupts stay off from the empty test to the block.
 read_con:
-                ld hl, (io_len)
-                ld a, h
-                or l
-                jp z, syscall_ok
+                call io_empty
                 ld hl, 0
                 ld (io_got), hl
                 di
@@ -514,6 +531,8 @@ sys_write:
                 jp c, syscall_err
                 cp KIND_CON_OUT
                 jr z, write_con
+                cp KIND_PIPE_W
+                jp z, pipe_write
                 cp KIND_FILE
                 jr z, write_file
                 cp KIND_DIR

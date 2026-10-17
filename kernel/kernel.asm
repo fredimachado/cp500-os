@@ -60,6 +60,7 @@ banner:
 
                 include "sys.asm"
                 include "task.asm"
+                include "pipe.asm"
                 include "isr.asm"
                 include "keyboard.asm"
                 include "console.asm"

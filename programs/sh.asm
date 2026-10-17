@@ -86,19 +86,23 @@ try_query:
                 jp shell
 
 run_path:
-                call build_argv
-                jp c, show_err
-                ld c, SYS_SPAWN
-                ld de, argv_blk + 2
-                ld hl, argv_blk
+                ld hl, line
+find_bar:
+                ld a, (hl)
+                or a
+                jr z, run_one
+                cp '!'
+                jr z, run_pipe
+                inc hl
+                jr find_bar
+run_one:
+                ld hl, line
                 ld ix, 0
-                rst 08h
+                call spawn_line
                 jp c, show_err
-                ex de, hl
-                ld c, SYS_WAIT
-                rst 08h
+                call fg_wait
                 jp c, show_err
-                ld a, l
+report:
                 or a
                 jp z, shell
                 push af
@@ -109,6 +113,82 @@ run_path:
                 ld a, 0Dh
                 call write_byte
                 jp shell
+
+; "a ! b": the keyboard has no | key. a's fd 1 and b's fd 0 are the two pipe ends.
+; The shell closes its copies so b sees end of file and a sees no reader.
+run_pipe:
+                ld (hl), 0
+                inc hl
+                ld (rhs), hl
+                ld c, SYS_PIPE
+                ld de, pfd
+                rst 08h
+                jp c, show_err
+                ld hl, (pfd)
+                ld a, l
+                ld (map_b), a
+                ld a, h
+                ld (map_a + 1), a
+                ld hl, line
+                ld ix, map_a
+                call spawn_line
+                jr c, pipe_fail_a
+                ld (tid_a), hl
+                ld hl, (rhs)
+                ld ix, map_b
+                call spawn_line
+                push af
+                push hl
+                call close_pfd
+                pop hl
+                pop af
+                jr c, pipe_fail_b
+                call fg_wait
+                push af
+                ld hl, (tid_a)
+                call fg_wait
+                pop af
+                jr report
+pipe_fail_a:
+                push af
+                call close_pfd
+                pop af
+                jr show_err
+pipe_fail_b:
+                push af
+                ld hl, (tid_a)
+                call fg_wait
+                pop af
+                jr show_err
+
+close_pfd:
+                ld a, (pfd)
+                call close_a
+                ld a, (pfd + 1)
+close_a:
+                ld e, a
+                ld d, 0
+                ld c, SYS_CLOSE
+                rst 08h
+                ret
+
+; HL = command text, IX = fd map. HL = task id, or carry and A = error.
+spawn_line:
+                call build_argv
+                ret c
+                ld c, SYS_SPAWN
+                ld de, argv_blk + 2
+                ld hl, argv_blk
+                rst 08h
+                ret
+
+; HL = task id. A = its exit code.
+fg_wait:
+                ex de, hl
+                ld c, SYS_WAIT
+                rst 08h
+                ld a, l
+                ret
 
 show_err:
                 ld c, a
@@ -202,6 +282,11 @@ prompt_seq:
 prompt_end:
 
 empty:          db 0, 0
+map_a:          db 0, 0, 2, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
+map_b:          db 0, 1, 2, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
+pfd:            dw 0
+tid_a:          dw 0
+rhs:            dw 0
 ok_text:        db "ok", 0Dh, 0
 exit_text:      db "exit ", 0
 err_text:       db "ERR", 0
@@ -249,8 +334,8 @@ e_echild:       db "ECHILD", 0
 e_erofs:        db "EROFS", 0
 e_ebusy:        db "EBUSY", 0
 
+; HL = text.
 build_argv:
-                ld hl, line
                 ld de, argv_blk + 2
                 ld b, 0
 ba_tok:
