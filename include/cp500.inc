@@ -325,6 +325,11 @@ SYS_SYNC            equ 30h
 SYS_TIME            equ 40h
 SYS_SETTIME         equ 41h
 
+IOCTL_SETFG         equ 01h             ; IX = foreground task, 0 none
+IOCTL_SETMODE       equ 02h             ; IX = console mode bits
+CON_RAW             equ 01h             ; BREAK reads as KEY_BREAK, no dead keys
+KEY_BREAK           equ 03h
+
 O_READ              equ 01h
 O_WRITE             equ 02h
 O_CREATE            equ 04h
