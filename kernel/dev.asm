@@ -83,10 +83,11 @@ dc_busy:
                 ret
 dc_ioctl:
                 pop af
-                ld ix, (SC_FRAME)
-                ld e, (ix + F_DE)
-                ld d, (ix + F_DE + 1)
-                call fd_get
+                cp KIND_DEV
+                jr c, dc_ret
+                sub KIND_DEV
+                cp DEV_ROWS
+                jr nc, dc_ret
                 jp ser_ioctl
 dc_open:
                 pop af
@@ -238,22 +239,22 @@ dp_scan:
                 push hl
                 ld a, (hl)
                 call poll_one
-                pop hl
-                pop bc
                 ld e, a
+                inc hl
                 ld a, (hl)
                 inc hl
                 ld d, a
-                inc hl
-                ld a, d
-                and e
-                and POLLIN | POLLOUT
                 ld a, e
+                push af
+                and d
+                and POLLIN | POLLOUT
+                ld e, a
+                pop af
                 and POLL_ALWAYS
-                or d
+                or e
                 ld (hl), a
-                dec hl
-                dec hl
+                pop hl
+                pop bc
                 or a
                 jr z, dp_next
                 inc c
@@ -419,7 +420,9 @@ dev_ok:
                 call dev_clear_targ
                 jp syscall_ok
 dev_err:
+                push af
                 call dev_clear_targ
+                pop af
                 ld hl, 0
                 scf
                 jp syscall_err

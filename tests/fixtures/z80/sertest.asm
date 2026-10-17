@@ -8,7 +8,7 @@
                 ld a, 1
                 call arg_ptr
                 jr c, open_default
-                ld a, (de)
+                ld a, (hl)
                 cp 'c'
                 jr z, open_create
                 cp 't'

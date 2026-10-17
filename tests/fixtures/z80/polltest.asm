@@ -8,7 +8,7 @@
                 ld a, 1
                 call arg_ptr
                 jp c, exit_einval
-                ld a, (de)
+                ld a, (hl)
                 cp '0'
                 jp z, mode_0
                 cp 't'
@@ -28,9 +28,9 @@
                 jp exit_einval
 
 mode_0:
-                ld hl, pfd0
+                ld de, pfd0
                 ld b, 1
-                ld de, 0
+                ld hl, 0
                 call do_poll
                 jp c, exit_a
                 ld a, (pfd0 + 2)
@@ -39,9 +39,9 @@ mode_0:
 mode_t:
                 ld hl, (TICK_COUNT)
                 ld (t0), hl
-                ld hl, pfd0
+                ld de, pfd0
                 ld b, 1
-                ld de, 30
+                ld hl, 30
                 call do_poll
                 jp c, exit_a
                 ld hl, (TICK_COUNT)
@@ -59,9 +59,9 @@ mode_t_ok:
                 jp exit_ret
 
 mode_k:
-                ld hl, pfd0
+                ld de, pfd0
                 ld b, 1
-                ld de, POLL_FOREVER
+                ld hl, POLL_FOREVER
                 call do_poll
                 jp c, exit_a
                 ld a, (pfd0 + 2)
@@ -75,37 +75,38 @@ mode_p:
                 ld a, (pipefds)
                 ld (pfd_p), a
                 ld c, SYS_CLOSE
-                ld e, (pipefds_w)
+                ld a, (pipefds_w)
+                ld e, a
                 ld d, 0
                 rst 08h
-                ld hl, pfd_p
+                ld de, pfd_p
                 ld b, 1
-                ld de, 0
+                ld hl, 0
                 call do_poll
                 jp c, exit_a
                 ld a, (pfd_p + 2)
                 jp exit_ret
 
 mode_n:
-                ld hl, pfd_n
+                ld de, pfd_n
                 ld b, 1
-                ld de, 0
+                ld hl, 0
                 call do_poll
                 jp c, exit_a
                 ld a, (pfd_n + 2)
                 jp exit_ret
 
 mode_b:
-                ld hl, pfd0
+                ld de, pfd0
                 ld b, 9
-                ld de, 0
+                ld hl, 0
                 call do_poll
                 jp exit_a
 
 mode_w:
-                ld hl, pfd_w
+                ld de, pfd_w
                 ld b, 1
-                ld de, 0
+                ld hl, 0
                 call do_poll
                 jp c, exit_a
                 ld a, (pfd_w + 2)
@@ -119,9 +120,9 @@ mode_f:
                 jp c, exit_a
                 ld a, l
                 ld (pfd_f), a
-                ld hl, pfd_f
+                ld de, pfd_f
                 ld b, 1
-                ld de, 0
+                ld hl, 0
                 call do_poll
                 jp c, exit_a
                 ld a, (pfd_f + 2)

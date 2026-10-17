@@ -59,6 +59,9 @@ delay2_table:
                 D2C 38400
 
 ser_open:
+                ld a, (open_flags)
+                and O_CREATE | O_TRUNC | O_APPEND | O_EXCL
+                jp nz, dev_err_einval
                 ld a, (SER + S_PHASE)
                 cp PH_OPEN
                 jp z, dev_err_ebusy
