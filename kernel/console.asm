@@ -86,12 +86,21 @@ con_row_down:
                 inc a
                 cp VIDEO_ROWS
                 jr c, con_row_ok
+                ld hl, VIDEO_BASE + VIDEO_COLS
+                ld de, VIDEO_BASE
+                ld bc, VIDEO_SIZE - VIDEO_COLS
+                ldir
                 ld a, VIDEO_ROWS - 1
 con_row_ok:
                 ld (CUR_ROW), a
+                xor a
+                ld (CUR_COL), a
+                call con_addr
+                ld bc, VIDEO_COLS
+                call con_fill
                 call con_grab
                 call con_apply
-                jr con_leave
+                jp con_leave
 
 con_bs:
                 call con_restore
@@ -103,7 +112,7 @@ con_bs:
 con_bs_stay:
                 call con_grab
                 call con_apply
-                jr con_leave
+                jp con_leave
 
 con_esc:
                 ld a, c
@@ -115,7 +124,7 @@ con_esc:
                 jr z, con_arm_csi
                 xor a
                 ld (ANSI_STATE), a
-                jr con_leave
+                jp con_leave
 
 con_save:
                 ld a, (CUR_ROW)

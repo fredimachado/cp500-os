@@ -198,11 +198,8 @@ write_byte:
                 ret
 
 prompt_seq:
-                db 1Bh, "[4;1H"
-                db "sh>"
-                db 1Bh, "[5;1H"
+                db 0Dh, "sh>", 0Dh
 prompt_end:
-                assert prompt_end - prompt_seq == 15
 
 empty:          db 0, 0
 ok_text:        db "ok", 0Dh, 0

@@ -48,7 +48,7 @@ banner:
                 db 1Bh, "[K"
                 db 1Bh, "8"
                 db "/"
-                db 1Bh, "[2;1H"
+                db 1Bh, "[3;1H"
                 db 0
 
                 include "sys.asm"

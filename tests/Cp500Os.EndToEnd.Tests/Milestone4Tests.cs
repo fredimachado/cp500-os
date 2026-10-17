@@ -46,10 +46,11 @@ public sealed class Milestone4Tests : IDisposable
     {
         RunResult run = await Type(
             "/bin/mkdir /box{ENTER}/bin/cp /home/note /box/a{ENTER}/bin/mv /box/a /box/b{ENTER}/bin/cat /box/b{ENTER}/bin/rm /box/b{ENTER}/bin/rm /box{ENTER}/bin/ls /{ENTER}",
-            "box");
+            "lib");
         string[] lines = Visible(run.Stdout);
         Assert.Contains(lines, line => line == "hello");
-        Assert.Contains(lines, line => line == "box");
+        Assert.Contains(lines, line => line == "lib");
+        Assert.DoesNotContain(lines, line => line == "box");
     }
 
     [Fact]

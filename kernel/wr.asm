@@ -224,7 +224,8 @@ fail:           ld a, c
                 scf
                 ret
 
-path_kernel:    ld hl, (io_path)
+path_kernel:    push de
+                ld hl, (io_path)
                 ld de, pk_lit
 pk_cmp:         ld a, (de)
                 or a
@@ -239,15 +240,14 @@ pk_cmp:         ld a, (de)
                 inc de
                 jr pk_cmp
 pk_end:         ld a, (hl)
-                cp '/'
-                jr z, pk_end2
                 or a
+                jr nz, pk_no
+                pop de
                 scf
-                ret z
-pk_no:          or a
                 ret
-pk_end2:        inc hl
-                jr pk_end
+pk_no:          pop de
+                or a
+                ret
 
 pk_lit:         db "/sys/kernel", 0
 
@@ -1018,7 +1018,9 @@ pw_part:        ld a, (io_len)
                 pop bc
                 ret c
                 ld (wr_blk), de
+                push bc
                 call zero_blk
+                pop bc
                 ld hl, (io_buf)
                 ld de, BLK_BUF
                 ld c, b
