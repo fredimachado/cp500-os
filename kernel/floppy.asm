@@ -1,7 +1,16 @@
-; DE = block, HL = destination. Carry clear copies one sector.
+; DE = block, HL = buffer. Carry clear moves one sector.
 ; Carry set returns A = EIO. EI on both returns. DE and HL are restored.
+; DISK_WAIT is never set. The transfer is the polled DRQ loop, not WAIT plus NMI.
 
 floppy_read:
+                ld a, FDC_CMD_READ
+                jr floppy_io
+
+floppy_write:
+                ld a, FDC_CMD_WRITE
+
+floppy_io:
+                ld (io_cmd), a
                 push de
                 push hl
                 di
@@ -50,12 +59,12 @@ fr_seek:
 fr_sought:
                 ld a, c
                 out (FDC_SECTOR), a
-                ld a, FDC_CMD_READ
+                ld a, (io_cmd)
                 out (FDC_COMMAND), a
                 pop hl
                 push hl
                 ld de, 0
-                ld bc, FDC_DATA         ; B is 0, so INI moves 256 bytes
+                ld bc, FDC_DATA         ; B is 0, so INI/OUTI moves 256 bytes
 fr_poll:
                 in a, (FDC_STATUS)
                 rrca
@@ -68,11 +77,28 @@ fr_poll:
                 jr nz, fr_poll
                 jr fr_fail
 fr_byte:
+                ld a, (io_cmd)
+                cp FDC_CMD_WRITE
+                jr z, fr_out
                 ini
                 jr nz, fr_poll
+                jr fr_status
+fr_out:
+                outi
+                jr nz, fr_poll
+fr_status:
                 in a, (FDC_STATUS)
+                ld c, a
                 and FDC_NOT_READY | FDC_CRC_ERROR | FDC_NOT_FOUND | FDC_LOST_DATA
                 jr nz, fr_fail
+                ld a, (io_cmd)
+                cp FDC_CMD_WRITE
+                jr nz, fr_ok
+                ld a, c
+                and FDC_WRITE_PROT | FDC_WRITE_FAULT
+                jr nz, fr_fail
+fr_ok:
+                xor a
                 pop hl
                 pop de
                 ei
@@ -85,6 +111,8 @@ fr_fail:
                 pop de
                 ei
                 ret
+
+io_cmd:         db 0
 
 ; HL / A. HL = quotient, A = remainder. The carry out of RLA is the 9th remainder bit.
 div168:

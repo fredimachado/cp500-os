@@ -94,4 +94,7 @@ public sealed class Inode
         new(Kind, Attributes, size, modified, Created, extents);
 
     internal Inode WithModified(C5Time modified) => new(Kind, Attributes, Size, modified, Created, Extents);
+
+    internal Inode WithAttributes(InodeAttributes attributes, C5Time modified) =>
+        new(Kind, attributes, Size, modified, Created, Extents);
 }

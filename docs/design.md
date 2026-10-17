@@ -220,6 +220,10 @@ interrupts. The routine does not call the console. `DE`, `HL`, `IX`, `IY`,
 and the alternate registers are unchanged. `DISK_WAIT` is never set.
 `PORT_NMI` stays 0. `nmi` is `RETN`.
 
+`floppy_write` is the same poll with `FDC_CMD_WRITE` and `OUTI`. A failed
+write, including write protect or write fault, is `EIO`. This is the polled
+path. WAIT plus NMI is still not claimed.
+
 The Model III WAIT-plus-INTRQ transfer is not implemented and is not claimed.
 A green emulator run shows only that the poll completed the sector. The notes
 below describe that unimplemented technique.
@@ -724,7 +728,17 @@ Times are unsigned 32-bit seconds since 1980-01-01 00:00 local time (no time
 zone is stored), which lasts until 2116. The kernel keeps time from the 30 Hz
 tick. At boot it takes, in order: the hard disk expansion's clock if present,
 the network time if configured, or the root volume's "last written" time,
-which at least keeps timestamps moving forward. `date` sets it by hand.
+which at least keeps timestamps moving forward. There is no hardware clock
+in this milestone. At mount the base is the volume's last-written time and
+the origin tick is `TICK_COUNT`. The current time is that base plus
+`(TICK_COUNT - origin) / 30`, integer division. `date` with no arguments
+prints `yyyy-MM-dd HH:mm:ss`. `date` with two arguments, the date and the
+time separated by a space, sets the clock. `more` shows 16 lines and then
+waits for space (`20h`). The editor overwrites with printable ASCII. `:w`
+then ENTER saves and exits. `:q` then ENTER quits without saving. Arrow keys
+arrive as ESC `[` A/B/C/D. The on-machine `fsck` is not in this image. The
+bitmap is not visible through the existing calls, and the kernel has no room
+for a second copy of `VolumeChecker`. `c5fs check` remains the oracle.
 
 ## 8. Boot sequence
 

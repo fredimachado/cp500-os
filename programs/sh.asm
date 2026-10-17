@@ -86,9 +86,11 @@ try_query:
                 jp shell
 
 run_path:
+                call build_argv
+                jp c, show_err
                 ld c, SYS_SPAWN
-                ld de, line
-                ld hl, empty
+                ld de, argv_blk + 2
+                ld hl, argv_blk
                 ld ix, 0
                 rst 08h
                 jp c, show_err
@@ -196,11 +198,8 @@ write_byte:
                 ret
 
 prompt_seq:
-                db 1Bh, "[4;1H"
-                db "sh>"
-                db 1Bh, "[5;1H"
+                db 0Dh, "sh>", 0Dh
 prompt_end:
-                assert prompt_end - prompt_seq == 15
 
 empty:          db 0, 0
 ok_text:        db "ok", 0Dh, 0
@@ -250,4 +249,50 @@ e_echild:       db "ECHILD", 0
 e_erofs:        db "EROFS", 0
 e_ebusy:        db "EBUSY", 0
 
+build_argv:
+                ld hl, line
+                ld de, argv_blk + 2
+                ld b, 0
+ba_tok:
+                ld a, (hl)
+                or a
+                jr z, ba_done
+                cp ' '
+                jr nz, ba_word
+                inc hl
+                jr ba_tok
+ba_word:
+                inc b
+                ld a, b
+                cp 9
+                jr nc, ba_inval
+ba_ch:
+                ld a, (hl)
+                or a
+                jr z, ba_end
+                cp ' '
+                jr z, ba_end
+                ld (de), a
+                inc hl
+                inc de
+                jr ba_ch
+ba_end:
+                xor a
+                ld (de), a
+                inc de
+                jr ba_tok
+ba_done:
+                ld a, b
+                or a
+                jr z, ba_inval
+                ld (argv_blk), a
+                xor a
+                ld (argv_blk + 1), a
+                ret
+ba_inval:
+                ld a, EINVAL
+                scf
+                ret
+
 line:
+argv_blk        equ line + 128

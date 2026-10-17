@@ -153,6 +153,17 @@ INO_INDIRECT        equ 40h
 
 BLK_BUF             equ 6100h
 ARENA_BASE          equ 6200h
+
+; Resident write routines, loaded from /sys/wr. Not part of the 8 KiB kernel.
+WR_BASE             equ 0F800h
+WR_MKDIR            equ WR_BASE
+WR_REMOVE           equ WR_BASE + 3
+WR_RENAME           equ WR_BASE + 6
+WR_OPEN             equ WR_BASE + 9
+WR_WRITE            equ WR_BASE + 12
+WR_SYNC             equ WR_BASE + 15
+WR_TIME             equ WR_BASE + 18
+WR_SET              equ WR_BASE + 21
 ARENA_FIRST         equ 62h
 ARENA_BYTES         equ 40448
 KERNEL_RESERVE      equ 192

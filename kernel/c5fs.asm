@@ -19,6 +19,8 @@ mt_no1:
                 ret c
                 call mt_valid
                 jr c, mt_no2
+                ld a, 2
+                ld (vol_sb), a
                 ld a, (mt_flag)
                 or a
                 jr z, mt_use
@@ -30,6 +32,8 @@ mt_no2:
                 or a
                 jp z, fs_eio
 mt_use1:
+                ld a, 1
+                ld (vol_sb), a
                 ld de, 1
                 call mt_load
                 ret c
@@ -185,7 +189,20 @@ mt_store_sides:
                 ld (VOL_ICOUNT), hl
                 ld hl, (mt_first)
                 ld (VOL_FIRST), hl
+                ld hl, (BLK_BUF + SB_KERNEL_START)
+                ld (vol_kstart), hl
+                ld hl, (BLK_BUF + SB_KERNEL_COUNT)
+                ld (vol_kcount), hl
+                ld hl, BLK_BUF + 38
+                ld de, clk_base
+                ld bc, 4
+                ldir
+                ld hl, TICK_COUNT
+                ld de, clk_tick
+                ld bc, 4
+                ldir
                 xor a
+                ld (vol_dirty), a
                 ret
 
 ; L = ceil(block count / 2048).
@@ -250,8 +267,8 @@ fs_eio:
                 scf
                 ret
 
-; BC = inode. Fills and checks INO_BUF.
-c5fs_inode:
+; BC = inode. HL = that slot in BLK_BUF, DE = its table block.
+slot_ptr:
                 ld a, b
                 or c
                 jp z, fs_eio
@@ -259,8 +276,8 @@ c5fs_inode:
                 ld hl, (VOL_ICOUNT)
                 or a
                 sbc hl, bc
-                jp z, ino_pop
-                jp c, ino_pop
+                jr z, slot_bad
+                jr c, slot_bad
                 ld a, c
                 and 7
                 ld l, a
@@ -284,18 +301,34 @@ c5fs_inode:
                 ex de, hl
                 ld hl, BLK_BUF
                 call floppy_read
+                jr c, slot_bad2
                 pop hl
-                jr c, ino_pop
-                ld de, BLK_BUF
-                add hl, de
+                ld bc, BLK_BUF
+                add hl, bc
+                pop bc
+                or a
+                ret
+slot_bad2:
+                pop hl
+slot_bad:
+                pop bc
+                jp fs_eio
+
+; BC = inode. Copies the slot into INO_BUF and does not check it.
+c5fs_slot:
+                call slot_ptr
+                ret c
                 ld de, INO_BUF
                 ld bc, 32
                 ldir
-                pop bc
+                xor a
+                ret
+
+; BC = inode. Fills and checks INO_BUF.
+c5fs_inode:
+                call c5fs_slot
+                ret c
                 jp ino_check
-ino_pop:
-                pop bc
-                jp fs_eio
 
 ino_check:
                 ld a, (INO_BUF + INO_RES)
@@ -1193,3 +1226,46 @@ fs_namep:       dw 0
 fs_ptr:         dw 0
 fs_ino:         dw 0
 fs_islast:      db 0
+vol_sb:         db 1
+vol_dirty:      db 0
+vol_kstart:     dw 0
+vol_kcount:     dw 0
+clk_base:       ds 4, 0
+clk_tick:       ds 4, 0
+wr_ready:       db 0
+wr_child:       dw 0
+
+wr_path:        db "/sys/wr", 0
+
+; Copies /sys/wr to WR_BASE. A missing file leaves writes returning EIO.
+load_wr:
+                ld de, wr_path
+                call c5fs_walk
+                ret c
+                ld a, (INO_BUF + INO_SIZE + 2)
+                or a
+                jr nz, load_wr_bad
+                ld hl, (INO_BUF + INO_SIZE)
+                ld a, h
+                cp 8
+                jr nc, load_wr_bad
+                ld a, h
+                or l
+                jr z, load_wr_bad
+                push hl
+                ld hl, 0
+                ld (fs_acc), hl
+                ld (fs_acc + 2), hl
+                ld hl, WR_BASE
+                ld de, fs_acc
+                pop ix
+                call c5fs_read
+                ret c
+                ld a, 1
+                ld (wr_ready), a
+                xor a
+                ret
+load_wr_bad:
+                ld a, EIO
+                scf
+                ret

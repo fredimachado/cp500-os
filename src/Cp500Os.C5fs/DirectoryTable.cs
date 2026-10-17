@@ -97,6 +97,14 @@ internal sealed class DirectoryTable(BlockStore store, InodeTable inodes, BlockA
         inodes.Write(directoryNumber, directory.WithModified(now));
     }
 
+    /// <summary>Points the directory's <c>..</c> entry at <paramref name="parent"/>.</summary>
+    public void SetParent(int directoryNumber, ushort parent, C5Time now)
+    {
+        Inode directory = inodes.Get(directoryNumber);
+        BinaryPrimitives.WriteUInt16LittleEndian(EntryBytes(directory, 0), parent);
+        inodes.Write(directoryNumber, directory.WithModified(now));
+    }
+
     private Span<byte> EntryBytes(Inode directory, int index) =>
         store.Write(FileContent.PhysicalBlock(directory, index / EntriesPerBlock))
             .Slice(index % EntriesPerBlock * EntrySize, EntrySize);

@@ -4,4 +4,10 @@
   <ItemGroup>
     <Z80Program Include="kernel.asm" OutputName="kernel.bin" />
   </ItemGroup>
+
+  <Target Name="AssembleWriter" AfterTargets="AssembleZ80"
+          Inputs="wr.asm;$(Z80OutputPath)kernel.sym;$(RepoRoot)include/cp500.inc"
+          Outputs="$(Z80OutputPath)wr.bin">
+    <Exec Command="&quot;$(SjasmplusExe)&quot; --nologo --msg=war --fullpath --color=off --cleanonerror -I &quot;$(RepoRoot)include&quot; -I &quot;$(Z80OutputPath)&quot; --raw=&quot;$(Z80OutputPath)wr.bin&quot; --lst=&quot;$(Z80OutputPath)wr.lst&quot; --sym=&quot;$(Z80OutputPath)wr.sym&quot; wr.asm" />
+  </Target>
 </Project>

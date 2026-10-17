@@ -15,13 +15,25 @@
     <HiC5x>$(RepoRoot)build/z80/hi.c5x</HiC5x>
     <RelocC5x>$(RepoRoot)build/z80/reloc.c5x</RelocC5x>
     <MsgBin>$(RepoRoot)programs/c5fs-ok.bin</MsgBin>
+    <WriterBin>$(RepoRoot)build/z80/wr.bin</WriterBin>
+    <LsC5x>$(RepoRoot)build/z80/ls.c5x</LsC5x>
+    <CatC5x>$(RepoRoot)build/z80/cat.c5x</CatC5x>
+    <CpC5x>$(RepoRoot)build/z80/cp.c5x</CpC5x>
+    <MkdirC5x>$(RepoRoot)build/z80/mkdir.c5x</MkdirC5x>
+    <RmC5x>$(RepoRoot)build/z80/rm.c5x</RmC5x>
+    <MvC5x>$(RepoRoot)build/z80/mv.c5x</MvC5x>
+    <MoreC5x>$(RepoRoot)build/z80/more.c5x</MoreC5x>
+    <DateC5x>$(RepoRoot)build/z80/date.c5x</DateC5x>
+    <EdC5x>$(RepoRoot)build/z80/ed.c5x</EdC5x>
+    <NoteTxt>$(RepoRoot)programs/hello.txt</NoteTxt>
+    <LinesTxt>$(RepoRoot)programs/lines.txt</LinesTxt>
   </PropertyGroup>
 
   <Target Name="BuildCp500Disk" AfterTargets="Build"
-          Inputs="$(BootBin);$(KernelBin);$(C5fsDll);$(ShellC5x);$(HiC5x);$(RelocC5x);$(MsgBin)"
+          Inputs="$(BootBin);$(KernelBin);$(WriterBin);$(C5fsDll);$(ShellC5x);$(HiC5x);$(RelocC5x);$(MsgBin);$(LsC5x);$(CatC5x);$(CpC5x);$(MkdirC5x);$(RmC5x);$(MvC5x);$(MoreC5x);$(DateC5x);$(EdC5x);$(NoteTxt);$(LinesTxt)"
           Outputs="$(Cp500DiskImage)">
     <Error Condition="!Exists('$(C5fsDll)')" Text="c5fs was not built at $(C5fsDll)." />
     <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(C5fsDll)&quot; format &quot;$(Cp500DiskImage)&quot; --size 360 --label cp500-os --boot &quot;$(BootBin)&quot;" />
-    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(C5fsDll)&quot; sys &quot;$(Cp500DiskImage)&quot; --boot &quot;$(BootBin)&quot; --kernel &quot;$(KernelBin)&quot; --put &quot;$(ShellC5x)=/bin/sh&quot; --put &quot;$(HiC5x)=/bin/hi&quot; --put &quot;$(MsgBin)=/msg&quot; --put &quot;$(RelocC5x)=/lib/reloc.c5x&quot;" />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; exec &quot;$(C5fsDll)&quot; sys &quot;$(Cp500DiskImage)&quot; --boot &quot;$(BootBin)&quot; --kernel &quot;$(KernelBin)&quot; --put &quot;$(ShellC5x)=/bin/sh&quot; --put &quot;$(HiC5x)=/bin/hi&quot; --put &quot;$(MsgBin)=/msg&quot; --put &quot;$(RelocC5x)=/lib/reloc.c5x&quot; --put &quot;$(WriterBin)=/sys/wr&quot; --put &quot;$(LsC5x)=/bin/ls&quot; --put &quot;$(CatC5x)=/bin/cat&quot; --put &quot;$(CpC5x)=/bin/cp&quot; --put &quot;$(MkdirC5x)=/bin/mkdir&quot; --put &quot;$(RmC5x)=/bin/rm&quot; --put &quot;$(MvC5x)=/bin/mv&quot; --put &quot;$(MoreC5x)=/bin/more&quot; --put &quot;$(DateC5x)=/bin/date&quot; --put &quot;$(EdC5x)=/bin/ed&quot; --put &quot;$(NoteTxt)=/home/note&quot; --put &quot;$(LinesTxt)=/home/lines&quot; --readonly /bin/hi --readonly /msg --readonly /sys/wr" />
   </Target>
 </Project>

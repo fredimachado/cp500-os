@@ -26,6 +26,7 @@ km_sides:
                 call console_puts
                 call c5fs_mount
                 jr c, km_mount
+                call load_wr
                 ld a, ARENA_FIRST
                 ld (ARENA_NEXT), a
                 call become_shell
@@ -47,7 +48,7 @@ banner:
                 db 1Bh, "[K"
                 db 1Bh, "8"
                 db "/"
-                db 1Bh, "[2;1H"
+                db 1Bh, "[3;1H"
                 db 0
 
                 include "sys.asm"
