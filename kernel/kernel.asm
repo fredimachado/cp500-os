@@ -73,6 +73,7 @@ banner:
                 include "floppy.asm"
                 include "c5fs.asm"
 
+                assert $ <= 60FFh
                 assert $ <= BLK_BUF
                 ds ARENA_BASE - $, 0
 

@@ -1252,6 +1252,15 @@ load_keymap:
                 ld de, keymap_path
                 ld hl, KEYMAP
                 ld b, 1
+                call load_file
+load_dev:
+                ld de, dev_path
+                ld hl, DEV_BASE
+                ld b, DEV_PAGES
+                call load_file
+                call nc, DEV_INIT
+                ret
+dev_path:       db "/sys/dev", 0
 ; DE = path, HL = destination, B = pages it may fill. Carry when the file is
 ; missing, empty or too big.
 load_file:

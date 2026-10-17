@@ -12,5 +12,13 @@
     <Z80Program Include="statloop.asm" OutputName="statloop-0100.bin" Defines="ORIGIN=0x0100" />
     <Z80Program Include="rawkey.asm" OutputName="rawkey-0000.bin" Defines="ORIGIN=0x0000" />
     <Z80Program Include="rawkey.asm" OutputName="rawkey-0100.bin" Defines="ORIGIN=0x0100" />
+    <Z80Program Include="sertest.asm" OutputName="sertest-0000.bin" Defines="ORIGIN=0x0000" />
+    <Z80Program Include="sertest.asm" OutputName="sertest-0100.bin" Defines="ORIGIN=0x0100" />
+    <Z80Program Include="polltest.asm" OutputName="polltest-0000.bin" Defines="ORIGIN=0x0000" />
+    <Z80Program Include="polltest.asm" OutputName="polltest-0100.bin" Defines="ORIGIN=0x0100" />
+    <Z80Program Include="serboard.asm" OutputName="serboard-0000.bin" Defines="ORIGIN=0x0000" />
+    <Z80Program Include="serboard.asm" OutputName="serboard-0100.bin" Defines="ORIGIN=0x0100" />
+    <Z80Program Include="serkid.asm" OutputName="serkid-0000.bin" Defines="ORIGIN=0x0000" />
+    <Z80Program Include="serkid.asm" OutputName="serkid-0100.bin" Defines="ORIGIN=0x0100" />
   </ItemGroup>
 </Project>

@@ -10,6 +10,7 @@ floppy_write:
                 ld a, FDC_CMD_WRITE
 
 floppy_io:
+                rst HOOK_DISK
                 ld (io_cmd), a
                 push de
                 push hl

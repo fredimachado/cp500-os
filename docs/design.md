@@ -1,6 +1,6 @@
 # cp500-os Design
 
-Status: milestone 5 is implemented. Numbers marked "budget" are targets to
+Status: milestone 6 is implemented. Numbers marked "budget" are targets to
 measure against, not facts. Addresses, escape sequences and the keyboard map
 below are the ones the kernel uses.
 
@@ -347,13 +347,13 @@ Time:
 Limits: 8 descriptors per task, 16 open files system-wide, 4 pipes of 256 bytes
 each, paths up to 127 bytes.
 
-### Implemented calls (through milestone 5)
+### Implemented calls (through milestone 6)
 
 The kernel implements `exit`, `spawn`, `wait`, `getpid`, `yield`, `kill`,
 `open`, `close`, `read`, `write`, `seek`, `stat`, `fstat`, `readdir`,
-`mkdir`, `remove`, `rename`, `chdir`, `getcwd`, `pipe`, `ioctl`, `sync`,
-`time`, and `settime`. Calls that are not implemented, including `sleep`,
-`uptime`, `alloc`, `free`, `meminfo`, `dup2`, and `poll`, return `EINVAL`
+`mkdir`, `remove`, `rename`, `chdir`, `getcwd`, `pipe`, `ioctl`, `poll`,
+`sync`, `time`, and `settime`. Calls that are not implemented, including
+`sleep`, `uptime`, `alloc`, `free`, `meminfo`, and `dup2`, return `EINVAL`
 with `HL = 0` and carry set.
 
 Success is `A = 0`, carry clear, and the result in `HL`. Failure is `A` set
@@ -411,8 +411,8 @@ to `load + image + bss` and sets `SP` to `load + image + bss + stack + 192`.
 ### Character devices
 
 Milestone 5 still wires stdin, stdout and stderr to the task's console through
-descriptors 0-2. Paths under `/dev/` are not opened yet. The table below is
-the target layout.
+descriptors 0-2. `/dev/ser0` is matched on `open` before any file system
+walk; other paths in the table below are still targets.
 
 Paths under `/dev/` name devices, not files. The kernel resolves them from a
 fixed table before any file system walk, and they appear in no directory.
