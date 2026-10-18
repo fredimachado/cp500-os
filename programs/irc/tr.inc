@@ -15,12 +15,15 @@ tr_open:
                 ld a, d
                 or e
                 jr nz, tr_replay
-                ld a, ENODEV
-                scf
-                ret
+                jp mod_open
 tr_replay_path: dw 0
 
 tr_replay:
+                ld a, TR_KIND_REPLAY
+                ld (tr_kind), a
+                ld a, 0FFh
+                ld (tr_rfd), a
+                ld (tr_wfd), a
                 ld (tr_replay_path), hl
                 push de
                 push hl
@@ -47,14 +50,19 @@ tr_replay:
                 ret
 tr_open_in_fail:
                 pop de
+                ld hl, 0
                 scf
                 ret
 tr_open_out_fail:
+                ld hl, 0
                 scf
                 ret
 
 ; Plain SYS_READ up to 128 bytes into rl_buf (before tr_read pause machine).
 tr_boot_read:
+                ld a, (tr_kind)
+                cp TR_KIND_MODEM
+                jp z, mod_boot_read
                 ld bc, (rl_len)
                 ld a, b
                 or c
@@ -86,6 +94,9 @@ tr_boot_read:
 
 ; HL dest, BC max. Out BC bytes, C=EOF when carry.
 tr_read:
+                ld a, (tr_kind)
+                cp TR_KIND_MODEM
+                jp z, mod_read
                 ld a, (tr_state)
                 cp TR_CLOSED
                 jp z, tr_eof
@@ -391,6 +402,9 @@ tps_part:
 
 ; HL bytes, BC count without CR LF.
 tr_write:
+                ld a, (tr_kind)
+                cp TR_KIND_MODEM
+                jp z, mod_write
 tw_loop:
                 ld a, b
                 or c
@@ -482,6 +496,9 @@ tr_putc:
                 ret
 
 tr_close:
+                ld a, (tr_kind)
+                cp TR_KIND_MODEM
+                jp z, mod_close
                 ld a, (tr_state)
                 cp TR_CLOSED
                 ret z
@@ -535,6 +552,9 @@ tr_closed:
 
 ; After user submit, leave replay hold and expose unread chunk tail.
 tr_kick:
+                ld a, (tr_kind)
+                cp TR_KIND_MODEM
+                jp z, mod_kick
                 ld a, (tr_state)
                 cp TR_HELD
                 jr z, tk_unhold
