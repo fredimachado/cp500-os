@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using Cp500Os.Tests;
 
 namespace Cp500Os.EndToEnd.Tests;
@@ -25,6 +27,58 @@ public sealed class Milestone8Tests
         AssertExit(run, 5);
     }
 
+    [Fact]
+    public async Task TelnetEchoesAndReportsClosed()
+    {
+        W5100Board.Require();
+        using var listen = new TcpListener(IPAddress.Loopback, 0);
+        listen.Start();
+        int port = ((IPEndPoint)listen.LocalEndpoint).Port;
+        Task<RunResult> run = RunNetworkAsync(
+            $"/bin/telnet 127.0.0.1 {port}",
+            "connected",
+            "closed");
+        using TcpClient peer = await listen.AcceptTcpClientAsync(TestContext.Current.CancellationToken);
+        peer.Client.Shutdown(SocketShutdown.Send);
+        RunResult finished = await run;
+        Assert.Contains("connected", Visible(finished.Stdout));
+        Assert.Contains("closed", Visible(finished.Stdout));
+    }
+
+    [Fact]
+    public async Task GetPrintsOkForHttp200()
+    {
+        W5100Board.Require();
+        using var listen = new TcpListener(IPAddress.Loopback, 9876);
+        listen.Start();
+        Task serve = ServeHttpOnceAsync(listen);
+        RunResult run = await RunNetworkAsync(
+            "/bin/get http://127.0.0.1:9876/ok",
+            "GET OK");
+        await serve;
+        Assert.Contains("GET OK", Visible(run.Stdout));
+    }
+
+    [Fact]
+    public async Task TimesyncSetsClockFromPort37()
+    {
+        W5100Board.Require();
+        RunResult run = await RunNetworkAsync(
+            "/bin/timesync{ENTER}/bin/date",
+            "TIME OK",
+            "2026-01-01 00:00:00");
+        Assert.Contains("TIME OK", Visible(run.Stdout));
+        Assert.Contains("2026-01-01 00:00:00", Visible(run.Stdout));
+    }
+
+    private static async Task ServeHttpOnceAsync(TcpListener listen)
+    {
+        using TcpClient client = await listen.AcceptTcpClientAsync(TestContext.Current.CancellationToken);
+        using NetworkStream stream = client.GetStream();
+        byte[] response = "HTTP/1.0 200 OK\r\n\r\nOK"u8.ToArray();
+        await stream.WriteAsync(response, TestContext.Current.CancellationToken);
+    }
+
     private static async Task<RunResult> RunFixtureAsync(string command, string until)
     {
         RunResult run = await HeadlessRunner.RunAsync(
@@ -33,6 +87,29 @@ public sealed class Milestone8Tests
             "--type", command + "{ENTER}",
             "--until-screen", until,
             "--dump-screen");
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        return run;
+    }
+
+    private static async Task<RunResult> RunNetworkAsync(string command, params string[] until)
+    {
+        var args = new List<string>
+        {
+            "--rom", Roms.Stub,
+            "--disk0", Product(),
+            "--w5100",
+            "--until-screen", "sh>",
+            "--timeout", "20s",
+            "--type", command + "{ENTER}",
+        };
+        foreach (string text in until)
+        {
+            args.Add("--until-screen");
+            args.Add(text);
+        }
+
+        args.Add("--dump-screen");
+        RunResult run = await HeadlessRunner.RunAsync(args.ToArray());
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         return run;
     }

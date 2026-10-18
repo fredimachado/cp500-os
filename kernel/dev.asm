@@ -457,6 +457,8 @@ poll_one:
                 jp z, po_pr
                 cp KIND_PIPE_W
                 jp z, po_pw
+                cp KIND_NET
+                jp z, net_revents
                 cp KIND_DEV
                 jp nc, po_dev
                 xor a

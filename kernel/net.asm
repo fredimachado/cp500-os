@@ -37,6 +37,10 @@ W5_MASK         equ 07FFh
 net_vec:
                 dw n_socket, n_connect, n_listen, n_accept
                 dw n_send, n_recv, n_sockclose, n_resolve
+net_ok:         db 0
+net_s:          db 0
+net_lport:      dw 4000h
+net_shift:      db 0
 
 net_call:
                 ld ix, (SC_FRAME)
@@ -186,9 +190,13 @@ w5_cmd_w:
                 ret
 
 w5_r16:
-                call w5_ra
+                ld a, h
+                out (PORT_W5_AR0), a
+                ld a, l
+                out (PORT_W5_AR1), a
+                in a, (PORT_W5_DR)
                 ld b, a
-                call w5_ra
+                in a, (PORT_W5_DR)
                 ld h, b
                 ld l, a
                 ret
@@ -212,7 +220,6 @@ net_sockfd:
                 jr nz, nsf_bad
                 inc hl
                 inc hl
-                inc hl
                 ld a, (hl)
                 ld (net_s), a
                 xor a
@@ -228,7 +235,7 @@ n_socket:
                 jp nz, dev_err_einval
                 call net_up
                 call net_pick_sock
-                ret c
+                jp c, dev_err
                 ld a, (net_s)
                 ld e, Sn_MR
                 call w5_sa
@@ -251,97 +258,92 @@ n_socket:
                 ld (open_ino), a
                 xor a
                 ld (open_ino + 1), a
+                ld (open_flags), a
                 call fd_alloc
-                ret c
+                jp c, dev_err
                 jp dev_ok
 
+; Marks chip sockets 0-2 that are already open in OF_INO. Returns one in net_s.
 net_pick_sock:
-                ld b, 0
-                ld c, 0
-nps_scan:
-                ld a, c
+                ld hl, 0
+                ld b, OFILE_SLOTS
+nps_mark:
+                ld a, l
                 call ofile_of
                 ld a, (hl)
                 cp KIND_NET
-                jr nz, nps_next
-                inc hl
+                jr nz, nps_mark_next
                 inc hl
                 inc hl
                 ld a, (hl)
                 cp 3
-                jr nc, nps_next
-                push af
-                ld e, a
-                ld a, 1
-                ld d, e
+                jr nc, nps_mark_next
                 or a
-                jr z, nps_or
-nps_shf:
-                add a, a
-                dec d
-                jr nz, nps_shf
-nps_or:
-                or b
-                ld b, a
-                pop af
-nps_next:
-                inc c
-                ld a, c
-                cp OFILE_SLOTS
-                jr c, nps_scan
-                ld a, b
+                jr z, nps_mark_b0
+                dec a
+                jr z, nps_mark_b1
+                set 2, h
+                jr nps_mark_next
+nps_mark_b0:
+                set 0, h
+                jr nps_mark_next
+nps_mark_b1:
+                set 1, h
+nps_mark_next:
+                inc l
+                djnz nps_mark
+                ld a, h
                 cp 7
                 jp z, nps_full
-                ld a, 0
-nps_try:
-                push af
-                ld e, a
+                bit 0, h
+                jr z, nps_got0
+                bit 1, h
+                jr z, nps_got1
+                ld a, 2
+                jr nps_got
+nps_got0:
+                xor a
+                jr nps_got
+nps_got1:
                 ld a, 1
-                ld d, e
-                or a
-                jr z, nps_tst
-nps_sh2:
-                add a, a
-                dec d
-                jr nz, nps_sh2
-nps_tst:
-                and b
-                pop af
-                jr z, nps_got
-                inc a
-                cp 3
-                jr c, nps_try
-nps_full:
-                ld a, EMFILE
-                scf
-                ret
 nps_got:
                 ld (net_s), a
                 xor a
                 ret
+nps_full:
+                ld a, EMFILE
+                scf
+                ret
 
 n_connect:
                 call net_up
-                ld a, e
+                jp c, dev_err
+                ld ix, (SC_FRAME)
+                ld a, (ix + F_DE)
+                ld e, a
                 call net_sockfd
-                ret c
+                jp c, dev_err
                 ld hl, (ix + F_HL)
-                ld de, hl
+                push hl
                 ld e, Sn_DIPR
                 call w5_sx
+                pop de
                 ld b, 4
 nc_ip:
                 ld a, (de)
                 inc de
                 call w5_wa
+                inc hl
                 djnz nc_ip
                 ld a, (de)
                 ld b, a
                 inc de
                 ld a, (de)
                 ld c, a
+                push bc
                 ld e, Sn_DPORT
                 call w5_sx
+                pop bc
                 ld a, b
                 call w5_wa
                 ld a, c
@@ -349,6 +351,9 @@ nc_ip:
                 ld a, W5_CONNECT
                 call w5_cmd
 nc_wait:
+                ld e, Sn_RX_RSR
+                call w5_sx
+                call w5_r16
                 ld e, Sn_SR
                 call w5_sx
                 call w5_ra
@@ -371,9 +376,10 @@ nc_die:
 
 n_listen:
                 call net_up
-                ld a, e
+                ld a, (ix + F_DE)
+                ld e, a
                 call net_sockfd
-                ret c
+                jp c, dev_err
                 ld hl, (ix + F_HL)
                 ld a, h
                 or l
@@ -396,9 +402,10 @@ n_listen:
 
 n_accept:
                 call net_up
-                ld a, e
+                ld a, (ix + F_DE)
+                ld e, a
                 call net_sockfd
-                ret c
+                jp c, dev_err
 na_wait:
                 ld e, Sn_SR
                 call w5_sx
@@ -415,16 +422,17 @@ na_tick:
                 ld a, CH_TICK
                 jp block_retry
 na_ok:
-                ld a, e
+                ld a, (ix + F_DE)
                 ld l, a
                 ld h, 0
                 jp dev_ok
 
 n_send:
                 call net_up
-                ld a, e
+                ld a, (ix + F_DE)
+                ld e, a
                 call net_sockfd
-                ret c
+                jp c, dev_err
                 ld hl, (ix + F_HL)
                 ld (io_buf), hl
                 ld hl, (ix + F_IX)
@@ -445,9 +453,11 @@ ns_loop:
                 or l
                 jr z, ns_tick
                 ld de, (io_len)
+                ld bc, hl
                 or a
                 sbc hl, de
-                jr nc, ns_take
+                ld hl, bc
+                jr c, ns_take
                 ld hl, de
 ns_take:
                 push hl
@@ -455,15 +465,40 @@ ns_take:
                 call w5_sx
                 call w5_r16
                 pop bc
+                push hl
                 push bc
                 ld a, (net_s)
+                add a, a
+                add a, a
+                add a, a
+                add a, h
+                add a, W5_TX0 >> 8
+                ld h, a
+                ld de, (io_buf)
                 call w5_buf_tx
+                pop bc
+                pop hl
+                add hl, bc
+                ld a, h
+                and W5_MASK >> 8
+                ld h, a
+                push bc
+                push hl
+                ld e, Sn_TX_WR
+                call w5_sx
+                pop bc
+                ld a, b
+                call w5_wa
+                ld a, c
+                call w5_wa
                 pop bc
                 ld hl, (io_got)
                 add hl, bc
                 ld (io_got), hl
+                push bc
                 ld a, W5_SEND
                 call w5_cmd
+                pop bc
                 ld hl, (io_len)
                 or a
                 sbc hl, bc
@@ -523,9 +558,12 @@ w5btx_done:
 
 n_recv:
                 call net_up
-                ld a, e
+                jp c, dev_err
+                ld ix, (SC_FRAME)
+                ld a, (ix + F_DE)
+                ld e, a
                 call net_sockfd
-                ret c
+                jp c, dev_err
                 ld hl, (ix + F_HL)
                 ld (io_buf), hl
                 ld hl, (ix + F_IX)
@@ -533,7 +571,7 @@ n_recv:
 nr_loop:
                 ld e, Sn_RX_RSR
                 call w5_sx
-                call w5_r16s
+                call w5_r16
                 ld a, h
                 or l
                 jr nz, nr_copy
@@ -554,52 +592,109 @@ nr_eagain:
                 jp dev_err
 nr_copy:
                 ld de, (io_len)
+                ld bc, hl
                 or a
                 sbc hl, de
-                jr nc, nr_take
+                ld hl, bc
+                jr c, nr_take
                 ld hl, de
 nr_take:
-                ld b, l
-                ld c, h
+                ld b, h
+                ld c, l
+                push bc
                 ld e, Sn_RX_RD
                 call w5_sx
+                ld a, h
+                sub W5_SOCK0 >> 8
+                push af
                 call w5_r16
-                ex de, hl
-                ld a, (net_s)
+                ld a, h
+                and W5_MASK >> 8
+                ld h, a
+                pop af
+                push af
+                add a, a
+                add a, a
+                add a, a
+                add a, h
+                add a, W5_RX0 >> 8
+                ld h, a
+                pop af
+                pop bc
+                push af
+                ld de, (io_buf)
                 call w5_buf_rx
+                pop af
+                push bc
+                add a, W5_SOCK0 >> 8
+                ld h, a
+                ld l, Sn_RX_RSR
+                pop bc
+                push bc
+                ld a, b
+                call w5_wa
+                ld a, c
+                call w5_wa
+                ld l, Sn_CR
+                pop bc
+                push bc
                 ld a, W5_RECV
-                call w5_cmd
-                ld hl, bc
+                call w5_wa
+                pop hl
                 jp dev_ok
 
+; HL absolute chip address, DE host, BC len. BC is preserved.
 w5_buf_rx:
                 push bc
-                push de
-                push hl
-                ld b, c
-                ld c, l
 w5brx:
                 ld a, b
-                or a
+                or c
                 jr z, w5brx_done
+                push bc
                 call w5_ra
                 ld (de), a
                 inc de
-                inc c
-                ld a, c
+                inc hl
+                ld a, l
                 and W5_MASK & 0FFh
-                ld c, a
-                dec b
+                ld l, a
+                pop bc
+                dec bc
                 jr w5brx
 w5brx_done:
-                pop hl
-                pop de
                 pop bc
+                ret
+
+net_revents:
+                inc hl
+                inc hl
+                ld a, (hl)
+                ld (net_s), a
+                ld e, Sn_RX_RSR
+                call w5_sx
+                call w5_r16
+                ld a, h
+                or l
+                jr z, nrv_sr
+                ld a, POLLIN
+                ret
+nrv_sr:
+                ld e, Sn_SR
+                call w5_sx
+                call w5_ra
+                cp SR_EST
+                jr z, nrv_none
+                ld a, POLLIN | POLLHUP
+                ret
+nrv_none:
+                xor a
                 ret
 
 n_sockclose:
                 call net_up
-                ld a, e
+                ld a, (ix + F_DE)
+                ld e, a
+                ld d, 0
                 cp FD_SLOTS
                 ld a, EBADF
                 jp nc, dev_err
@@ -632,18 +727,21 @@ n_resolve:
                 ld a, W5_OPEN
                 call w5_cmd
                 ld hl, w5_gw
-                ld de, hl
+                push hl
                 ld e, Sn_DIPR
                 call w5_sx
+                pop de
                 ld b, 4
 nr_gw:
                 ld a, (de)
                 inc de
                 call w5_wa
+                inc hl
                 djnz nr_gw
                 xor a
                 ld e, Sn_DPORT
                 call w5_sx
+                xor a
                 call w5_wa
                 ld a, 53
                 call w5_wa
@@ -660,7 +758,7 @@ nr_poll:
                 call dns_answer
                 ld a, W5_CLOSE
                 call w5_cmd
-                ret c
+                jp c, dev_err
                 jp dev_ok_z
 nr_wait:
                 ld a, CH_TICK
@@ -744,6 +842,8 @@ dns_q:
 dns_q_end:
 
 dns_answer:
+                ld a, (net_s)
+                ld (net_shift), a
                 ld hl, (ix + F_HL)
                 push hl
                 ld e, Sn_RX_RD
@@ -751,10 +851,15 @@ dns_answer:
                 call w5_r16
                 ld bc, 28
                 add hl, bc
-                ex de, hl
-                pop hl
+                ld a, (net_shift)
+                add a, a
+                add a, a
+                add a, a
+                add a, h
+                add a, W5_RX0 >> 8
+                ld h, a
+                pop de
                 ld bc, 4
-                ld a, (net_s)
                 call w5_buf_rx
                 xor a
                 ret
@@ -762,7 +867,3 @@ dns_no:
                 ld a, ENOENT
                 scf
                 ret
-
-net_ok:         db 0
-net_s:          db 0
-net_lport:      dw 0x4000
