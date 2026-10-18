@@ -17,4 +17,10 @@
           Outputs="$(Z80OutputPath)dev.bin">
     <Exec Command="&quot;$(SjasmplusExe)&quot; --nologo --msg=war --fullpath --color=off --cleanonerror -I &quot;$(RepoRoot)include&quot; -I &quot;$(Z80OutputPath)&quot; --raw=&quot;$(Z80OutputPath)dev.bin&quot; --lst=&quot;$(Z80OutputPath)dev.lst&quot; --sym=&quot;$(Z80OutputPath)dev.sym&quot; dev.asm" />
   </Target>
+
+  <Target Name="AssembleSer" AfterTargets="AssembleZ80"
+          Inputs="ser.asm;ser_body.asm;$(Z80OutputPath)kernel.sym;$(RepoRoot)include/cp500.inc"
+          Outputs="$(Z80OutputPath)ser.bin">
+    <Exec Command="&quot;$(SjasmplusExe)&quot; --nologo --msg=war --fullpath --color=off --cleanonerror -I &quot;$(RepoRoot)include&quot; -I &quot;$(Z80OutputPath)&quot; --raw=&quot;$(Z80OutputPath)ser.bin&quot; --lst=&quot;$(Z80OutputPath)ser.lst&quot; --sym=&quot;$(Z80OutputPath)ser.sym&quot; ser.asm" />
+  </Target>
 </Project>

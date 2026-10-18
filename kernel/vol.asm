@@ -262,7 +262,7 @@ blk_hook:
                 ld a, (hl)
                 or a
                 jr nz, bh_disk
-                jp ser_disk
+                jp SEV_DISK
 
 bh_disk:
                 ld hl, (VOL_BLOCKS)
