@@ -79,11 +79,9 @@ try_query:
                 ld a, (line + 1)
                 cp ' '
                 jr nz, run_path
-                ld c, SYS_SPAWN
-                ld de, line + 2
-                ld hl, empty
+                ld hl, line + 2
                 ld ix, 0
-                rst 08h
+                call spawn_line
                 jp c, show_err
                 ld hl, ok_text
                 call write_str
@@ -180,8 +178,8 @@ close_a:
 spawn_line:
                 call build_argv
                 ret c
+                call bind_path
                 ld c, SYS_SPAWN
-                ld de, argv_blk + 2
                 ld hl, argv_blk
                 rst 08h
                 ret
@@ -293,7 +291,7 @@ prompt_seq:
                 db 0Dh, "sh>", 0Dh
 prompt_end:
 
-empty:          db 0, 0
+bin_lit:        db "/bin/"
 map_a:          db 0, 0, 2, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
 map_b:          db 0, 1, 2, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
 pfd:            dw 0
@@ -348,6 +346,9 @@ e_ebusy:        db "EBUSY", 0
 
 ; HL = text.
 build_argv:
+                push ix
+                push iy
+                ld c, 126
                 ld de, argv_blk + 2
                 ld b, 0
 ba_tok:
@@ -369,11 +370,20 @@ ba_ch:
                 jr z, ba_end
                 cp ' '
                 jr z, ba_end
+                ld a, c
+                or a
+                jr z, ba_inval
+                dec c
+                ld a, (hl)
                 ld (de), a
                 inc hl
                 inc de
                 jr ba_ch
 ba_end:
+                ld a, c
+                or a
+                jr z, ba_inval
+                dec c
                 xor a
                 ld (de), a
                 inc de
@@ -385,11 +395,63 @@ ba_done:
                 ld (argv_blk), a
                 xor a
                 ld (argv_blk + 1), a
+                pop iy
+                pop ix
                 ret
 ba_inval:
+                pop iy
+                pop ix
                 ld a, EINVAL
                 scf
                 ret
 
+; DE = spawn path. Preserves IX, IY and argv_blk.
+bind_path:
+                push ix
+                push iy
+                ld hl, argv_blk + 2
+                ld b, 0
+bp_scan:
+                ld a, (hl)
+                or a
+                jr z, bp_bin
+                cp '/'
+                jr z, bp_path
+                inc b
+                ld a, b
+                cp NAME_MAX + 1
+                jr z, bp_path
+                inc hl
+                jr bp_scan
+bp_bin:
+                ld hl, bin_lit
+                ld de, path_buf
+                ld bc, 5
+                ldir
+                ld hl, argv_blk + 2
+                ld de, path_buf + 5
+bp_copy:
+                ld a, (hl)
+                ld (de), a
+                or a
+                jr z, bp_ret_buf
+                inc hl
+                inc de
+                jr bp_copy
+bp_ret_buf:
+                ld de, path_buf
+                pop iy
+                pop ix
+                or a
+                ret
+bp_path:
+                ld de, argv_blk + 2
+                pop iy
+                pop ix
+                or a
+                ret
+
 line:
 argv_blk        equ line + 128
+NAME_MAX        equ 30
+path_buf        equ argv_blk + 128

@@ -86,6 +86,30 @@ public sealed class Milestone3Tests : IDisposable
     }
 
     [Fact]
+    public async Task BareNameRunsFromBin()
+    {
+        RunResult run = await TypeAsync("hi{ENTER}", "exit 3");
+        string[] lines = Visible(run.Stdout);
+        Assert.Contains(lines, line => line == "hello");
+        Assert.Contains(lines, line => line == "c5fs-ok");
+        Assert.Contains(lines, line => line == "exit 3");
+    }
+
+    [Fact]
+    public async Task BareLsListsHomeLikeAbsolutePath()
+    {
+        RunResult run = await TypeAsync("ls /home{ENTER}", "lines");
+        Assert.Contains(Visible(run.Stdout), line => line == "lines");
+    }
+
+    [Fact]
+    public async Task BareMissingProgramIsNotFound()
+    {
+        RunResult run = await TypeAsync("nosuch{ENTER}", "ENOENT");
+        Assert.Contains(Visible(run.Stdout), line => line == "ENOENT");
+    }
+
+    [Fact]
     public async Task SpawnWithoutWaitRunsTheRelocatedSample()
     {
         C5xProgram shell = Load("sh.c5x");
