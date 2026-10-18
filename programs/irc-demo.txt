@@ -1,0 +1,21 @@
+:irc.example 433 fredi :Nickname is already in use
+.
+:irc.example 433 fredi_ :Nickname is already in use
+.
+:irc.example 001 fredi__ :Welcome
+:irc.example PING :keepalive
+.
+:irc.example PRIVMSG #cp500 :hello channel
+.
+:irc.example PRIVMSG #cp500 :aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+.
+:irc.example PRIVMSG #cp500 :4,2 cafã and ç
+.
+:irc.example JOIN fredi__ #one
+:irc.example JOIN fredi__ #two
+.
+:irc.example PRIVMSG #two :hidden ping
+.
+:irc.example PRIVMSG fredi__ :ACTION waves
+:irc.example PRIVMSG fredi__ :VERSION
+.
