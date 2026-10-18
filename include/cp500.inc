@@ -391,6 +391,22 @@ SYS_SYNC            equ 30h
 SYS_POLL            equ 31h
 SYS_TIME            equ 40h
 SYS_SETTIME         equ 41h
+SYS_SOCKET          equ 50h
+SYS_CONNECT         equ 51h
+SYS_LISTEN          equ 52h
+SYS_ACCEPT          equ 53h
+SYS_SEND            equ 54h
+SYS_RECV            equ 55h
+SYS_SOCKCLOSE       equ 56h
+SYS_RESOLVE         equ 57h
+
+SOCK_NONBLOCK       equ 1
+
+PORT_W5_MR          equ 0D0h
+PORT_W5_AR0         equ 0D1h
+PORT_W5_AR1         equ 0D2h
+PORT_W5_DR          equ 0D3h
+W5_MR_IND           equ 03h
 
 IOCTL_SETFG         equ 01h             ; IX = foreground task, 0 none
 IOCTL_SETMODE       equ 02h             ; IX = console mode bits

@@ -140,6 +140,13 @@ dc_busy:
                 jr z, dc_rw
                 cp SYS_IOCTL
                 jp z, dc_ioctl
+                cp SYS_SOCKET
+                jr c, dc_nosock
+                cp SYS_RESOLVE + 1
+                jr nc, dc_nosock
+                pop ix
+                jp net_call
+dc_nosock:
                 pop ix
                 pop af
                 ret
@@ -246,6 +253,8 @@ dev_close:
                 ret
 dc_kind:
                 pop af
+                cp KIND_NET
+                jp z, net_sock_close
                 cp KIND_DEV
                 ret c
                 sub KIND_DEV
@@ -590,6 +599,7 @@ rw_fail:
 
                 include "vol.asm"
                 include "hd.asm"
+                include "net.asm"
                 assert $ < DEV_BASE + 3840
                 assert $ <= SER_REC
                 org SER_REC
