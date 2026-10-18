@@ -142,8 +142,9 @@ Open files and pipe metadata sit in `KPAGE` outside the disk image.
 impossible without an MMU. `spawn` loads a new program, sets up its arguments,
 environment and file descriptors, and makes it ready, like `posix_spawn`. The
 CP-500 keyboard has no `|` key, so the shell runs pipelines as `a ! b` with
-two spawns and a pipe (`a`'s stdout and `b`'s stdin on the pipe ends). The
-`?` prefix spawns a background child without waiting.
+two spawns and a pipe (`a`'s stdout and `b`'s stdin on the pipe ends). Each side
+uses the same spawn rules as a foreground line (bare words from `/bin/`). The
+`?` prefix spawns a background child the same way, without waiting.
 
 ### Break
 
@@ -405,7 +406,8 @@ skipped. `HL` is 1 when an entry was stored and 0 at the end. Both are
 success. The slot is inode (2 bytes) then a 30-byte NUL-padded name.
 
 The argv block is `argc`, `envc`, then that many NUL-terminated strings.
-Both counts are 0 to 8. The shell passes `00 00`. The loader copies the block
+Both counts are 0 to 8. The shell passes `envc` 0 and `argc` equal to the word
+count; a word with no `/` is spawned from `/bin/` plus that word. The loader copies the block
 to `load + image + bss` and sets `SP` to `load + image + bss + stack + 192`.
 
 ### Character devices
