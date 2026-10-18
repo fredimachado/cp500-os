@@ -28,13 +28,16 @@ hd_wait:
 hw_loop:
                 in a, (PORT_HD_STATUS)
                 bit 7, a
-                ret z
+                jr z, hw_ready
                 dec de
                 ld a, d
                 or e
                 jr nz, hw_loop
                 ld a, EIO
                 scf
+                ret
+hw_ready:
+                or a
                 ret
 
 ; A = HD_CMD_READ or HD_CMD_WRITE, hd_lba set, HL = buffer.
@@ -112,76 +115,76 @@ hx_done_eio:
                 ret
 
 hd_lba:         ds 3
+hp_st2:         ds 1
 
 hd_part:
                 push af
                 xor a
-                ld hl, BLK_BUF
-                ld de, 0
                 ld (hd_lba), a
                 ld (hd_lba + 1), a
+                ld (hd_lba + 2), a
+                ld hl, BLK_BUF
                 ld a, HD_CMD_READ
                 call hd_xfer
                 jr c, hp_pop_eio
                 pop af
                 push af
                 dec a
-                ld e, a
-                ld d, 0
-                ld hl, PT_ENTRY
-                add hl, de
+                ld c, a
+                add a, a
+                add a, a
+                add a, a
+                sub c
+                ld l, a
+                ld h, 0
                 ld de, BLK_BUF
                 add hl, de
                 ld a, (hl)
                 or a
                 jp z, hp_enoent
                 cp PT_C5FS
-                jp hp_pop_eio
+                jp nz, hp_pop_eio
                 inc hl
                 ld e, (hl)
                 inc hl
                 ld d, (hl)
                 inc hl
                 ld a, (hl)
-                ld b, a
+                ld (hp_st2), a
                 inc hl
                 ld c, (hl)
                 inc hl
+                ld b, (hl)
+                inc hl
                 ld a, (hl)
                 or a
-                jp hp_pop_eio
+                jp nz, hp_pop_eio
+                ld a, (hp_st2)
+                or e
+                or d
+                jp z, hp_pop_eio
+                ld a, b
+                or c
+                jp z, hp_pop_eio
+                push de
                 ld h, b
                 ld l, c
-                ld a, e
-                or a
-                jp hp_pop_eio
+                ld de, VOL_WR_MAX + 1
                 or a
                 sbc hl, de
-                jp hp_pop_eio
-                ld a, h
-                or a
-                jp hp_pop_eio
-                ld a, l
-                cp 3
-                jp hp_pop_eio
-                ld (vm_count), a
-                ld a, c
-                ld (vm_count + 1), a
+                pop de
+                jp nc, hp_pop_eio
+                ld (VOL_BLOCKS), bc
                 pop af
-                push af
-                ld l, a
-                ld h, 0
-                add hl, hl
-                add hl, hl
-                add hl, hl
-                ld de, VOL_BASE
-                add hl, de
+                push de
+                call base_at
+                pop de
                 ld (hl), e
                 inc hl
                 ld (hl), d
                 inc hl
-                ld (hl), b
-                pop af
+                ld a, (hp_st2)
+                ld (hl), a
                 xor a
                 ret
 hp_pop_eio:
@@ -236,8 +239,8 @@ hd_clock:
                 ld a, (hc_buf + 4)
                 call hc_bcd
                 ret c
-                or a
-                ret z
+                cp 32
+                ret nc
                 ld (hc_day), a
                 ld a, (hc_buf + 5)
                 call hc_bcd
@@ -259,7 +262,7 @@ hc_bcd:
                 ld h, a
                 and 0Fh
                 cp 10
-                ret nc
+                jr nc, hc_bad
                 ld l, a
                 ld a, h
                 rrca
@@ -268,13 +271,17 @@ hc_bcd:
                 rrca
                 and 0Fh
                 cp 10
-                ret nc
+                jr nc, hc_bad
                 ld h, a
                 ld a, l
                 ld b, 10
 hb_mul:
                 add a, h
                 djnz hb_mul
+                or a
+                ret
+hc_bad:
+                scf
                 ret
 
 hc_pack:
@@ -283,14 +290,7 @@ hc_pack:
                 ld (hc_sec), hl
                 ld (hc_sec + 2), hl
                 ld a, (hc_yy)
-                cp 80
-                ld a, (hc_yy)
-                jr nc, hp_y80
                 add a, 20
-                jr hp_yset
-hp_y80:
-                sub 80
-hp_yset:
                 ld (hc_y), a
                 ld a, (hc_mon)
                 ld e, a
