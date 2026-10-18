@@ -13,7 +13,7 @@ start:
                 call tr_open
                 pop de
                 pop bc
-                jp c, fail
+                jp c, open_fail
                 push bc
                 ld hl, out_buf
                 ld (out_ptr), hl
@@ -25,14 +25,21 @@ start:
                 call win_show
                 call net_pump
                 call net_register
-main_loop:
-                call net_pump
-                jr nz, main_loop
-main_key:
-                call key_read
-                call key
-                jr nc, main_key
-                jr main_loop
+                jp tr_run
+
+open_fail:
+                push af
+                ld a, h
+                or l
+                pop af
+                jp z, fail
+                push af
+                push hl
+                call puts
+                call cr
+                pop hl
+                pop af
+                jp fail
 
 parse_args:
                 ld a, 1
@@ -94,6 +101,7 @@ pa_out:         dw 0
 pa_nick:        dw 0
 
                 include "irc/tr.inc"
+                include "irc/mod.inc"
                 include "irc/proto.inc"
                 include "irc/cmd.inc"
                 include "irc/win.inc"
@@ -122,6 +130,16 @@ msg_cmd         equ misc + 62h
 msg_par         equ misc + 72h
 msg_n           equ misc + 0ECh
 wf_at           equ misc + 0EEh
+mod_phase       equ misc + 0EFh
+mod_line_len    equ misc + 0F0h
+mod_line_over   equ misc + 0F1h
+mod_pending     equ misc + 0F2h
+mod_pending_err equ misc + 0F3h
+tr_kind         equ misc + 0F4h
+live_pfd_con    equ misc + 0F5h
+live_pfd_ser    equ misc + 0F8h
+mod_host        equ misc + 0FBh
+mod_pollfd      equ misc + 0FDh
 me              equ misc + 90h
 autojoin        equ misc + 0B0h
 phase           equ misc + 0C8h
