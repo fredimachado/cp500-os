@@ -496,11 +496,8 @@ po_pwok:
                 ld a, POLLOUT
                 ret
 po_dev:
-                ld a, d
-                sub KIND_DEV
                 ld e, DR_REVENTS
                 call dev_go
-                xor a
                 ret
 
 dev_ok:

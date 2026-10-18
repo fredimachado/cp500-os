@@ -241,34 +241,45 @@ ser_write:
 sw_loop:
                 di
                 ld a, (SER + S_TXH)
-                ld c, a
+                ld e, a
                 ld a, (SER + S_TXT)
+                ld c, a
+                ld a, e
                 sub c
+                ld c, a
                 ld a, 255
-                sub a
-                ld b, a
+                sub c
                 or a
                 jr z, sw_full
+                ld b, a
                 ei
                 ld hl, (io_len)
+                ld a, h
                 or a
-                sbc hl, bc
-                jr nc, sw_m
-                ld b, l
-sw_m:
+                jr nz, sw_take
+                ld a, l
+                cp b
+                jr nc, sw_take
+                ld b, a
+sw_take:
+                ld a, b
+                or a
+                jr z, sw_done
                 ld a, (SER + S_TXPG)
                 ld h, a
-                ld l, c
+                ld l, e
                 ld de, (io_buf)
+                ld c, b
 sw_copy:
                 ld a, (de)
                 inc de
                 ld (hl), a
-                inc hl
+                inc l
                 djnz sw_copy
                 ld a, (SER + S_TXH)
-                add a, b
+                add a, c
                 ld (SER + S_TXH), a
+                ld b, 0
                 ld hl, (io_buf)
                 add hl, bc
                 ld (io_buf), hl
@@ -285,6 +296,7 @@ sw_copy:
                 ld a, h
                 or l
                 jr nz, sw_loop
+sw_done:
                 ld a, CH_SER
                 jp io_round
 sw_full:
@@ -664,22 +676,10 @@ st_drop:
 st_open:
                 in a, (PORT_SER_MODEM)
                 bit SER_MS_DCD_BIT, a
-                ld b, a
+                jr nz, st_dcd_rise
                 ld a, (SER + S_LINE)
                 bit 3, a
-                ld c, a
-                ld a, b
-                jr z, st_dcd1
-                bit 0, c
-                jr nz, st_cts
-                ld a, (SER + S_LINE)
-                or LN_DCD
-                ld (SER + S_LINE), a
-                jr st_cts
-st_dcd1:
-                bit 0, c
                 jr z, st_cts
-                ld a, (SER + S_LINE)
                 res 3, a
                 ld (SER + S_LINE), a
                 ld a, (SER + S_CFG + CFG_FLAGS)
@@ -690,6 +690,14 @@ st_dcd1:
                 ld (SER + S_LINE), a
                 ld a, CH_SER
                 call wake
+                jr st_cts
+st_dcd_rise:
+                ld a, (SER + S_LINE)
+                bit 3, a
+                jr nz, st_cts
+                res 2, a
+                or LN_DCD
+                ld (SER + S_LINE), a
 st_cts:
                 ld a, (SER + S_TXH)
                 ld hl, SER + S_TXT
@@ -896,7 +904,7 @@ ln3:
 
 hung:
                 ld a, (SER + S_LINE)
-                bit LN_HUNG, a
+                and LN_HUNG
                 ret z
                 ld a, (SER + S_CFG + CFG_FLAGS)
                 and CFG_F_DCD
