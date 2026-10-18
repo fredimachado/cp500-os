@@ -30,7 +30,8 @@ km_sides:
                 ld sp, BOOT_STACK_TOP
                 call sys_init
                 ei
-                call c5fs_mount
+                call c5fs_pick
+                call nc, mt_apply
                 push af
                 call nc, load_sys
                 xor a

@@ -364,7 +364,6 @@ fd_get:
                 ld a, (hl)
                 or a
                 jr z, fd_bad
-                or a
                 ret
 fd_bad:
                 ld a, EBADF
@@ -664,6 +663,7 @@ seek_store:
 
 ; HL = ofile from fd_get. Loads its inode and points io_pos at POS.
 take_inode:
+                rst HOOK_INODE
                 ld de, OF_INO
                 add hl, de
                 ld c, (hl)
