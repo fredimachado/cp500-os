@@ -625,11 +625,39 @@ h_privmsg:
                 call win_show
 hp_fmt:
                 pop af
-                ld hl, f_chanmsg
                 or a
-                jr nz, hp_go
+                jr nz, hp_chan
+                ld hl, (msg_par)
+                ld a, (hl)
+                cp '#'
+                jr z, hp_c0
+                cp '&'
+                jr z, hp_c0
+                cp '+'
+                jr z, hp_c0
+                cp '!'
+                jr z, hp_c0
+                ld a, (cur_win)
+                cp 0
+                jr nz, hp_pm0
+                ld a, 2
+                push af
+                ld a, 0
                 ld hl, f_privmsg
-hp_go:
+                call say
+                pop af
+                jr hp_pm
+hp_pm0:
+                ld a, 0
+hp_pm:
+                ld hl, f_privmsg
+                jp say
+hp_c0:
+                ld a, 0
+                ld hl, f_chanmsg
+                jp say
+hp_chan:
+                ld hl, f_chanmsg
                 jp say
 
 h_notice:

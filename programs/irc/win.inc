@@ -198,12 +198,6 @@ win_show:
                 xor a
                 ld (hl), a
                 pop hl
-                push hl
-                ld de, W_ACT
-                add hl, de
-                xor a
-                ld (hl), a
-                pop hl
                 ld hl, esc2j
                 call out_str
                 call paint_status
@@ -343,9 +337,7 @@ win_clear:
                 jp win_show
 
 win_exit:
-                ld hl, esc_exit
-                call out_str
-                jp out_flush
+                ret
 
 ; A = win, HL = format, DE = arg
 say:

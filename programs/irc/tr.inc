@@ -108,7 +108,7 @@ tr_work:
                 ret c
                 ld a, (tr_len)
                 or a
-                jr z, tr_zero
+                jp z, tr_zero
 tr_drain:
                 ld a, b
                 or a
@@ -142,7 +142,10 @@ tr_refill:
                 ld b, a
                 ld a, (tr_len)
                 cp b
-                jr nz, tr_ret0
+                jr c, tr_ret0
+                jr z, tr_at_chunk_end
+                jp tr_refill
+tr_at_chunk_end:
                 ld a, (tr_rem)
                 or a
                 ld b, a
@@ -218,6 +221,36 @@ tr_ensure_out:
 
 tr_pump:
 tp_loop:
+                ld a, (tr_state)
+                cp TR_DOT
+                jr nz, tp_pos
+                ld a, (tr_pos)
+                ld b, a
+                ld a, (tr_len)
+                cp b
+                jr c, tp_pos
+                jr z, tp_pos
+                ld hl, tr_chunk
+                ld a, b
+                add a, l
+                ld l, a
+                jr nc, tp_rd_ix
+                inc h
+tp_rd_ix:
+                ld a, (hl)
+                cp '.'
+                jr z, tp_slurp_ret
+                cp 0Dh
+                jr z, tp_slurp_ret
+                cp 0Ah
+                jr z, tp_slurp_ret
+                ld a, TR_BOL
+                ld (tr_state), a
+                jp tp_pos
+tp_slurp_ret:
+                call tp_slurp_pause
+                ret
+tp_pos:
                 ld a, (tr_pos)
                 ld b, a
                 ld a, (tr_len)
@@ -241,33 +274,15 @@ tp_ix:
                 ld a, c
                 cp '.'
                 jr nz, tp_emit
-                ld a, TR_DOT
-                ld (tr_state), a
-                jp tp_loop
+                call tp_slurp_pause
+                ret
 tp_mid:
                 cp TR_MID
-                jr nz, tp_dot
+                jr nz, tp_any
                 ld a, c
                 cp 0Dh
                 jr z, tp_loop
                 jp tp_emit
-tp_dot:
-                cp TR_DOT
-                jr nz, tp_dotcr
-                ld a, c
-                cp 0Ah
-                jr z, tr_pause
-                cp 0Dh
-                jr nz, tp_emit
-                ld a, TR_DOTCR
-                ld (tr_state), a
-                jp tp_loop
-tp_dotcr:
-                cp TR_DOTCR
-                jr nz, tp_any
-                ld a, c
-                cp 0Ah
-                jr z, tr_pause
 tp_any:
                 ld a, TR_MID
                 ld (tr_state), a
@@ -296,13 +311,82 @@ tp_got:
                 ld (hl), bc
                 ld a, b
                 or c
-                jr z, tp_done
-                jp tp_loop
+                jp nz, tp_loop
+                call tp_pause_if_bol
 tp_done:
                 ret
-tr_pause:
+
+; Output buffer full: still finish a pending "." pause line.
+tp_pause_if_bol:
+                ld a, (tr_state)
+                cp TR_DOT
+                jr z, tp_pib_slurp
+                cp TR_BOL
+                ret nz
+                ld a, (tr_pos)
+                ld b, a
+                ld a, (tr_len)
+                cp b
+                ret c
+                ret z
+                ld hl, tr_chunk
+                ld a, b
+                add a, l
+                ld l, a
+                jr nc, tp_pib_ix
+                inc h
+tp_pib_ix:
+                ld a, (hl)
+                cp '.'
+                ret nz
+                ld hl, tr_pos
+                inc (hl)
+tp_pib_slurp:
+                call tp_slurp_pause
+                ld a, (tr_state)
+                cp TR_HELD
+                ret z
+                jp tp_loop
+
+; tr_pos on '.'; skip through line end, TR_HELD, tr_pos at next line.
+tp_slurp_pause:
+                push bc
+                push hl
+tps_loop:
+                ld a, (tr_pos)
+                ld b, a
+                ld a, (tr_len)
+                cp b
+                jr c, tps_part
+                jr z, tps_part
+                ld hl, tr_chunk
+                ld a, b
+                add a, l
+                ld l, a
+                jr nc, tps_ix
+                inc h
+tps_ix:
+                ld a, (hl)
+                cp 0Ah
+                jr z, tps_nl
+                ld hl, tr_pos
+                inc (hl)
+                jr tps_loop
+tps_nl:
+                ld hl, tr_pos
+                inc (hl)
+                ld a, TR_BOL
+                ld (tr_state), a
                 ld a, TR_HELD
                 ld (tr_state), a
+                pop hl
+                pop bc
+                ret
+tps_part:
+                ld a, TR_DOT
+                ld (tr_state), a
+                pop hl
+                pop bc
                 ret
 
 ; HL bytes, BC count without CR LF.
@@ -455,13 +539,24 @@ tr_kick:
                 cp TR_HELD
                 jr z, tk_unhold
                 cp TR_DOT
-                jr z, tk_unhold
+                jr z, tk_unhold_dot
                 cp TR_DOTCR
-                jr z, tk_unhold
-                jr tk_fin
+                jr z, tk_unhold_dot
+                jp tk_fin
 tk_unhold:
                 ld a, TR_READY
                 ld (tr_state), a
+                xor a
+                ret
+tk_unhold_dot:
+                call tk_dot_at_pos
+                ld a, TR_READY
+                ld (tr_state), a
+                jr nz, tk_ud_done
+                call tk_skip_pause
+tk_ud_done:
+                xor a
+                ret
 tk_fin:
                 call tk_dot_at_pos
                 ret nz
@@ -474,7 +569,8 @@ tk_dot_at_pos:
                 ld b, a
                 ld a, (tr_len)
                 cp b
-                jr nc, tk_bd_eof
+                jr c, tk_bd_eof
+                jr z, tk_bd_eof
                 ld hl, tr_chunk
                 ld a, b
                 add a, l
@@ -490,13 +586,22 @@ tk_bd_eof:
                 ret
 
 tk_skip_pause:
-                ld a, (tr_state)
-                cp TR_DOT
-                jr z, tk_sp_scan
-                cp TR_DOTCR
-                jr z, tk_sp_scan
-                jr tk_sp_scan
+                ld a, (tr_pos)
+                ld b, a
+                ld a, (tr_len)
+                cp b
+                ret c
+                ret z
+                ld hl, tr_chunk
+                ld a, b
+                add a, l
+                ld l, a
+                jr nc, tk_sp_scan
+                inc h
 tk_sp_scan:
+                ld a, (hl)
+                cp '.'
+                ret nz
                 push bc
                 push hl
 tk_sp_loop:
@@ -504,7 +609,8 @@ tk_sp_loop:
                 ld b, a
                 ld a, (tr_len)
                 cp b
-                jr nc, tk_sp_out
+                jr c, tk_sp_out
+                jr z, tk_sp_out
                 ld hl, tr_chunk
                 ld a, b
                 add a, l

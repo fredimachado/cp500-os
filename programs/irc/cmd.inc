@@ -45,9 +45,11 @@ key_csi:
                 ld hl, kb_state
                 ld a, KB_GROUND
                 ld (hl), a
+                ld a, (key_ch)
                 ld e, a
                 ld hl, csi_tab
                 call csi_find
+                ret nc
                 jp (hl)
 key_tocsi:
                 ld a, KB_CSI
@@ -69,10 +71,14 @@ csi_f:
                 jr csi_f
 csi_hit:
                 inc hl
-                ld a, (hl)
                 inc hl
-                ld h, (hl)
+                ld a, (hl)
                 ld l, a
+                inc hl
+                ld a, (hl)
+                ld h, a
+                pop bc
+                scf
                 ret
 csi_miss:
                 pop hl
@@ -180,13 +186,52 @@ sub_empty:
                 call sub_reset
                 call paint_input
                 call out_flush
-                jp sub_kick
-sub_kick:
-                call tr_kick
-se_pump:
-                call net_pump
-                jr nz, se_pump
+                call sub_kick_enter
+                ld c, 1
+se_act_scan:
+                ld a, c
+                call whdr_ptr
+                ld de, W_ACT
+                add hl, de
+                ld a, (hl)
+                or a
+                jr nz, se_act_show
+                inc c
+                ld a, c
+                cp 3
+                jr c, se_act_scan
                 ret
+se_act_show:
+                ld a, c
+                jp win_show
+
+sub_kick_once:
+                call tr_kick
+sko_pump:
+                call net_pump
+                jr nz, sko_pump
+                ret
+sub_kick:
+                jp sub_kick_enter
+sub_kick_enter:
+                call tr_kick
+                ld bc, 0
+se_pump:
+                push bc
+                call net_pump
+                pop bc
+                jr nz, se_got
+                ld a, (tr_state)
+                cp TR_HELD
+                ret nz
+                ld a, b
+                or c
+                ret nz
+                call tr_kick
+                jr se_pump
+se_got:
+                inc bc
+                jr se_pump
 
 win_show_cur:
                 ld a, (cur_win)
@@ -261,8 +306,7 @@ cj_try:
                 call win_show
                 call sub_reset
                 ld hl, f_joinfull
-                call say
-                jp sub_kick
+                jp say
 cj_ok:
                 push hl
                 ld hl, (fmt_arg)
@@ -304,6 +348,8 @@ cq_msg:
                 ld hl, w_quit
                 call wire
                 call tr_close
+                xor a
+                call win_show
                 call win_exit
                 jp exit0
 
@@ -316,7 +362,8 @@ c_win:
                 cp '3'
                 jr nc, cw_bad
                 sub '0'
-                jp win_show
+                call win_show
+                jp sub_kick_enter
 cw_bad:
                 or a
                 ret
