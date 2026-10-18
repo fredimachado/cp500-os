@@ -845,14 +845,14 @@ provided by the kernel, not stored on disk.
 /mnt        other volumes
 ```
 
-### Time without a clock
+### Time
 
 Times are unsigned 32-bit seconds since 1980-01-01 00:00 local time (no time
 zone is stored), which lasts until 2116. The kernel keeps time from the 30 Hz
-tick. At boot it takes, in order: the hard disk expansion's clock if present,
-the network time if configured, or the root volume's "last written" time,
-which at least keeps timestamps moving forward. There is no hardware clock
-in this milestone. At mount the base is the volume's last-written time and
+tick. After `/sys/dev` loads, if the FreHD board answers probe register `CEh`
+with `07h`, the kernel reads the battery-backed clock on that board and sets
+system time through `/sys/wr`; otherwise the root volume's last-written time
+from `c5fs_pick` / `mt_apply` remains the base. At mount the base is the volume's last-written time and
 the origin tick is `TICK_COUNT`. The current time is that base plus
 `(TICK_COUNT - origin) / 30`, integer division. `date` with no arguments
 prints `yyyy-MM-dd HH:mm:ss`. `date` with two arguments, the date and the

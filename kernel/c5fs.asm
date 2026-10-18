@@ -1,6 +1,6 @@
 ; Read-only C5FS. One inode in INO_BUF, one sector in BLK_BUF.
 
-c5fs_mount:
+c5fs_pick:
                 ld de, 1
                 call mt_load
                 ret c
@@ -38,7 +38,8 @@ mt_use1:
                 call mt_load
                 ret c
 mt_use:
-                jp mt_apply
+                xor a
+                ret
 
 mt_load:
                 ld hl, BLK_BUF
@@ -88,28 +89,67 @@ mt_cmp:
                 or a
                 ret
 
+mt_geoi:
+                ld a, EIO
+                scf
+                ret
+
 mt_apply:
-                ld a, (BLK_BUF + SB_VERSION)
-                cp 1
-                jp nz, fs_eio
-                ld a, (BLK_BUF + SB_FLAGS)
-                and 0FEh
-                jp nz, fs_eio
                 ld a, (BLK_BUF + SB_SPT)
                 or a
-                jp z, fs_eio
+                jr z, mt_geoi
                 ld (mt_spt), a
                 ld a, (BLK_BUF + SB_SIDES)
                 ld (mt_sides), a
-                cp 1
+                dec a
                 jr z, mt_geom
-                cp 2
-                jp nz, fs_eio
+                dec a
+                jr z, mt_geom
+                jr mt_geoi
 mt_geom:
                 ld hl, (BLK_BUF + 16)
                 ld a, h
                 or l
-                jp z, fs_eio
+                jr z, mt_geoi
+                ld (mt_blocks), hl
+                ld a, (BLK_BUF + SB_TRACKS)
+                ld c, a
+                ld a, (mt_spt)
+                call mul88
+                ld a, (mt_sides)
+                dec a
+                jr z, mt_prod
+                add hl, hl
+                jr c, mt_geoi
+mt_prod:
+                ld de, (mt_blocks)
+                or a
+                sbc hl, de
+                jr nz, mt_geoi
+                ld a, (mt_sides)
+                ld (VOL_SIDES), a
+                ld a, (mt_spt)
+                ld (VOL_SPT), a
+                ld hl, BLK_BUF + 38
+                ld de, clk_base
+                ld bc, 4
+                ldir
+                ld hl, TICK_COUNT
+                ld de, clk_tick
+                ld bc, 4
+                ldir
+
+c5fs_layout:
+                ld a, (BLK_BUF + SB_VERSION)
+                cp 1
+                jr nz, mt_geoi
+                ld a, (BLK_BUF + SB_FLAGS)
+                and 0FEh
+                jr nz, mt_geoi
+                ld hl, (BLK_BUF + 16)
+                ld a, h
+                or l
+                jr z, mt_geoi
                 ld (mt_blocks), hl
                 ld hl, (BLK_BUF + 18)
                 ld a, h
@@ -159,28 +199,6 @@ mt_geom:
                 sbc hl, de
                 jp z, fs_eio
                 jp c, fs_eio
-                ld a, (BLK_BUF + SB_TRACKS)
-                ld c, a
-                ld a, (mt_spt)
-                call mul88
-                ld a, (mt_sides)
-                dec a
-                jr z, mt_prod
-                add hl, hl
-                jp c, fs_eio
-mt_prod:
-                ld de, (mt_blocks)
-                or a
-                sbc hl, de
-                jp nz, fs_eio
-                ld a, (BLK_BUF + SB_SIDES)
-                cp 1
-                jr z, mt_store_sides
-                ld a, 2
-mt_store_sides:
-                ld (VOL_SIDES), a
-                ld a, (mt_spt)
-                ld (VOL_SPT), a
                 ld hl, (mt_blocks)
                 ld (VOL_BLOCKS), hl
                 ld hl, (mt_itable)
@@ -193,14 +211,6 @@ mt_store_sides:
                 ld (vol_kstart), hl
                 ld hl, (BLK_BUF + SB_KERNEL_COUNT)
                 ld (vol_kcount), hl
-                ld hl, BLK_BUF + 38
-                ld de, clk_base
-                ld bc, 4
-                ldir
-                ld hl, TICK_COUNT
-                ld de, clk_tick
-                ld bc, 4
-                ldir
                 xor a
                 ld (vol_dirty), a
                 ret

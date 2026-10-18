@@ -13,7 +13,7 @@
   </Target>
 
   <Target Name="AssembleDev" AfterTargets="AssembleZ80"
-          Inputs="dev.asm;ser.asm;$(Z80OutputPath)kernel.sym;$(RepoRoot)include/cp500.inc"
+          Inputs="*.asm;$(Z80OutputPath)kernel.sym;$(RepoRoot)include/cp500.inc"
           Outputs="$(Z80OutputPath)dev.bin">
     <Exec Command="&quot;$(SjasmplusExe)&quot; --nologo --msg=war --fullpath --color=off --cleanonerror -I &quot;$(RepoRoot)include&quot; -I &quot;$(Z80OutputPath)&quot; --raw=&quot;$(Z80OutputPath)dev.bin&quot; --lst=&quot;$(Z80OutputPath)dev.lst&quot; --sym=&quot;$(Z80OutputPath)dev.sym&quot; dev.asm" />
   </Target>

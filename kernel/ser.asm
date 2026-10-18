@@ -56,9 +56,6 @@ delay2_table:
                 D2C 38400
 
 ser_open:
-                ld a, (open_flags)
-                and O_CREATE | O_TRUNC | O_APPEND | O_EXCL
-                jp nz, dev_err_einval
                 ld a, (SER + S_PHASE)
                 cp PH_OPEN
                 jp z, dev_err_ebusy
@@ -94,6 +91,7 @@ so_probe:
                 ld (open_ino + 1), a
                 call fd_alloc
                 jp c, so_free_rings
+                push hl
                 di
                 xor a
                 ld (SER + S_RXH), a
@@ -134,6 +132,7 @@ so_dcd:
                 ld (SER + S_PHASE), a
                 call cfg_apply
                 ei
+                pop hl
                 jp dev_ok
 so_give_rx:
                 ld a, (SER + S_RXPG)
@@ -918,7 +917,12 @@ ring_give:
                 ret
 
 ser_disk:
+                pop hl
+                pop de
+                pop af
                 push af
+                push de
+                push hl
                 ld a, (KBUSY)
                 dec a
                 jr nz, sd_ret
@@ -944,6 +948,8 @@ ser_disk:
                 push hl
                 ret
 sd_ret:
+                pop hl
+                pop de
                 pop af
                 ret
 

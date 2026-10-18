@@ -20,5 +20,7 @@
     <Z80Program Include="serboard.asm" OutputName="serboard-0100.bin" Defines="ORIGIN=0x0100" />
     <Z80Program Include="serkid.asm" OutputName="serkid-0000.bin" Defines="ORIGIN=0x0000" />
     <Z80Program Include="serkid.asm" OutputName="serkid-0100.bin" Defines="ORIGIN=0x0100" />
+    <Z80Program Include="hdtest.asm" OutputName="hdtest-0000.bin" Defines="ORIGIN=0x0000" />
+    <Z80Program Include="hdtest.asm" OutputName="hdtest-0100.bin" Defines="ORIGIN=0x0100" />
   </ItemGroup>
 </Project>

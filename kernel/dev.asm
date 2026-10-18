@@ -13,9 +13,11 @@ di_own:
                 ld (hl), 0FFh
                 inc hl
                 djnz di_own
+                xor a
+                ld hl, VOL_CUR
+                ld (hl), a
                 ld hl, SER
                 ld bc, SER_SIZE
-                xor a
 init_s0:
                 ld (hl), a
                 inc hl
@@ -29,26 +31,67 @@ init_s0:
                 call mask_out
                 ld hl, hook_jumps
                 ld de, HOOK_SLOT
-                ld bc, 9
+                ld bc, hook_end - hook_jumps
                 ldir
                 ld hl, dev_isr
                 ld (SYS_ISR + 1), hl
+                ld hl, vol_gate
+                ld (SYS_RST08 + 1), hl
                 ei
-                ret
+                jp hd_clock
 
 hook_jumps:
-                jp ser_disk
+                jp blk_hook
                 jp dev_call
                 jp dev_close
+                jp vol_inode
+hook_end:
+                assert hook_end - hook_jumps == 12
 
+DR_NAME             equ 0
+DR_OPEN             equ 2
+DR_READ             equ 4
+DR_WRITE            equ 6
+DR_IOCTL            equ 8
+DR_CLOSE            equ 10
+DR_REVENTS          equ 12
 DR_SIZE             equ 14
 
 dev_table:
                 dw ser0_name, ser_open, ser_read, ser_write, ser_ioctl, ser_close, ser_revents
+                dw hd0_name,  hd_open,  hd_read,  hd_write,  hd_ioctl,  hd_close,  hd_revents
 dev_table_end:
 DEV_ROWS            equ (dev_table_end - dev_table) / DR_SIZE
-                assert KIND_SER == KIND_DEV + 0 && DEV_ROWS == 1
+                assert KIND_SER == KIND_DEV + 0 && KIND_HD == KIND_DEV + 1 && DEV_ROWS == 2
 ser0_name:      db "/dev/ser0", 0
+
+; A = kind, E = DR_* field. Keeps BC, HL, IX.
+dev_go:
+                sub KIND_DEV
+                ret c
+                cp DEV_ROWS
+                ret nc
+                ld b, a
+                ld c, e
+                pop hl
+                push hl
+                ld hl, dev_table
+                or a
+                jr z, dg_off
+dg_row:
+                ld de, DR_SIZE
+                add hl, de
+                dec b
+                jr nz, dg_row
+dg_off:
+                add hl, bc
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                ex de, hl
+                pop bc
+                push bc
+                jp (hl)
 
 dev_call:
                 push af
@@ -79,11 +122,15 @@ dc_ioctl:
                 pop af
                 cp KIND_DEV
                 jr c, dc_ioctl_out
+                ld a, d
                 sub KIND_DEV
                 cp DEV_ROWS
                 jr nc, dc_ioctl_out
                 push ix
-                jp ser_ioctl
+                ld e, DR_IOCTL
+                call dev_go
+                pop ix
+                ret
 dc_ioctl_out:
                 ret
 dc_open:
@@ -101,72 +148,67 @@ dc_rw:
                 push de
                 cp KIND_DEV
                 jr c, dc_pop_ix
+                ld a, d
                 sub KIND_DEV
                 cp DEV_ROWS
                 jr nc, dc_pop_ix
-                add a, a
-                add a, a
-                add a, a
-                ld e, a
-                ld d, 0
-                ld hl, dev_table
-                add hl, de
                 ld a, (ix + F_C)
                 cp SYS_READ
-                jr z, dc_rd
-                cp SYS_WRITE
-                jr z, dc_wr
-                inc hl
-                inc hl
-                inc hl
-                inc hl
-                inc hl
-                inc hl
-                ld e, (hl)
-                inc hl
-                ld d, (hl)
-                ex de, hl
-                jp (hl)
-dc_rd:
-                inc hl
-                inc hl
-                ld e, (hl)
-                inc hl
-                ld d, (hl)
-                ex de, hl
-                jp (hl)
-dc_wr:
-                inc hl
-                inc hl
-                inc hl
-                inc hl
-                ld e, (hl)
-                inc hl
-                ld d, (hl)
-                ex de, hl
-                jp (hl)
+                ld e, DR_READ
+                jr z, dc_go
+                ld e, DR_WRITE
+dc_go:
+                call dev_go
+                jr dc_pop_ix
 dc_pop_ix:
                 pop ix
                 ret
 
 dev_open:
                 push de
-                ld hl, (io_path)
-                ld de, ser0_name
+                ld c, 0
+                ld hl, dev_table
+do_row:
+                push bc
+                push hl
+                ld a, (hl)
+                ld c, a
+                inc hl
+                ld b, (hl)
+                inc hl
+                ld h, b
+                ld l, c
+                ld de, (io_path)
 do_cmp:
                 ld a, (de)
                 cp (hl)
-                jr nz, do_nomatch
+                jr nz, do_next
                 inc hl
                 inc de
                 or a
                 jr nz, do_cmp
+                pop hl
+                pop bc
                 ld a, (open_flags)
                 and O_CREATE | O_TRUNC | O_APPEND | O_EXCL
                 jp nz, dev_err_einval
-                jp ser_open
-do_nomatch:
+                ld a, c
+                add a, KIND_DEV
+                ld e, DR_OPEN
+                call dev_go
                 pop de
+                ret
+do_next:
+                pop hl
+                pop bc
+                inc c
+                ld de, DR_SIZE
+                add hl, de
+                ld a, c
+                cp DEV_ROWS
+                jr c, do_row
+                pop de
+                call vol_route
                 ret
 
 dev_close:
@@ -178,9 +220,14 @@ dev_close:
                 ret
 dc_kind:
                 pop af
-                cp KIND_SER
-                ret nz
-                jp ser_close
+                cp KIND_DEV
+                ret c
+                sub KIND_DEV
+                cp DEV_ROWS
+                ret nc
+                ld e, DR_CLOSE
+                call dev_go
+                ret
 
 dev_isr:
                 push af
@@ -449,11 +496,17 @@ po_pwok:
                 ld a, POLLOUT
                 ret
 po_dev:
-                call ofile_of
-                jp ser_revents
+                ld a, d
+                sub KIND_DEV
+                ld e, DR_REVENTS
+                call dev_go
+                xor a
+                ret
 
 dev_ok:
+                push hl
                 call dev_clear_targ
+                pop hl
                 jp syscall_ok
 dev_err:
                 push af
@@ -512,6 +565,8 @@ rw_fail:
                 scf
                 jp syscall_err
 
+                include "vol.asm"
+                include "hd.asm"
                 include "ser.asm"
                 assert $ <= SER_REC
                 org SER_REC
