@@ -96,6 +96,10 @@ K_BREAK             equ 4
 K_CLEAR             equ 5
 
 VOL                 equ 4062h
+VOL_SIZE            equ 10
+                assert VOL + VOL_SIZE == INO_BUF
+; VOL..VOL_FIRST and vol_sb..vol_kcount are the bound volume window. /sys/dev swaps
+; them across syscalls; kernel code must not cache them across RST 08h.
 VOL_SIDES           equ VOL + 0
 VOL_SPT             equ VOL + 1
 VOL_BLOCKS          equ VOL + 2
@@ -140,6 +144,8 @@ CON_BLOCK           equ KPAGE + 96h     ; 14 saved console bytes per console
 KVARS               equ KPAGE + 0B2h
 T_LIVE              equ KPAGE + 180h    ; 16-byte record per slot, TASK layout
 OFILE               equ KPAGE + 200h
+KPAGE_DEV           equ KPAGE + 280h
+KPAGE_SNAP          equ KPAGE + 2F0h
 
 TASK_ID             equ 0
 TASK_BASE           equ 1
@@ -164,6 +170,7 @@ KIND_PIPE_R         equ 5
 KIND_PIPE_W         equ 6
 KIND_DEV            equ 7
 KIND_SER            equ KIND_DEV + 0
+KIND_HD             equ KIND_DEV + 1
 
 TASK_SLOTS          equ 8
 TS_FREE             equ 0
@@ -420,12 +427,33 @@ STATS_SIZE          equ 8
 HOOK_DISK           equ 10h
 HOOK_CALL           equ 18h
 HOOK_CLOSE          equ 20h
+HOOK_INODE          equ 28h
 HOOK_SLOT           equ SYS_RST10
                 assert SYS_RST18 == HOOK_SLOT + 3 && SYS_RST20 == HOOK_SLOT + 6
+                assert SYS_RST28 == HOOK_SLOT + 9
 
-DEV_PAGES           equ 10
+DEV_PAGES           equ 15
 DEV_BASE            equ (ARENA_LAST + 1 - DEV_PAGES) << 8
 DEV_INIT            equ DEV_BASE
+
+PORT_HD_CLOCK       equ 0C2h
+PORT_HD_CMD2        equ 0C4h
+HD_GET_TIME         equ 01h
+PORT_HD_DATA        equ 0C8h
+PORT_HD_ERROR       equ 0C9h
+PORT_HD_COUNT       equ 0CAh
+PORT_HD_SECTOR      equ 0CBh
+PORT_HD_CYL_LO      equ 0CCh
+PORT_HD_CYL_HI      equ 0CDh
+PORT_HD_SDH         equ 0CEh
+PORT_HD_STATUS      equ 0CFh
+HD_PROBE_VAL        equ 07h
+HD_BUSY             equ 80h
+HD_WF               equ 20h
+HD_DRQ              equ 08h
+HD_ERR              equ 01h
+HD_CMD_READ         equ 20h
+HD_CMD_WRITE        equ 30h
 
 PORT_SER_MODEM      equ 0E8h
 PORT_SER_RESET      equ 0E8h

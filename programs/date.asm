@@ -4,7 +4,7 @@
 
                 include "cp500.inc"
 
-SNAP            equ 0F7F0h
+SNAP            equ KPAGE_SNAP
 
                 org ORIGIN
 
