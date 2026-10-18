@@ -894,7 +894,8 @@ details are still marked for verification against datasheets.
 
 TCP/IP is offloaded to the W5100 rather than run on the Z80: a software stack
 would cost 10-15 KiB and most of the CPU. The modem bridge comes first because
-it gives network access with only a serial driver.
+it gives network access with only a serial driver. The socket calls are in
+`/sys/dev`. The boot disk has `/bin/telnet`, `/bin/get`, and `/bin/timesync`.
 
 ### Serial board
 
@@ -1131,6 +1132,8 @@ these:
   system page or the interrupt masks before it has set them up.
 
 ## 11. Milestones
+
+Milestone 8 is the current tree.
 
 1. Tooling: assembler setup, `mkreloc`, `c5fs`, stub ROM, headless runner in
    heh8080.
