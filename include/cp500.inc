@@ -171,6 +171,7 @@ KIND_PIPE_W         equ 6
 KIND_DEV            equ 7
 KIND_SER            equ KIND_DEV + 0
 KIND_HD             equ KIND_DEV + 1
+KIND_NET            equ KIND_DEV + 2
 
 TASK_SLOTS          equ 8
 TS_FREE             equ 0
@@ -432,9 +433,29 @@ HOOK_SLOT           equ SYS_RST10
                 assert SYS_RST18 == HOOK_SLOT + 3 && SYS_RST20 == HOOK_SLOT + 6
                 assert SYS_RST28 == HOOK_SLOT + 9
 
+SER_PAGES           equ 7
+SER_BASE            equ 0DA00h
+SEV_OPEN            equ SER_BASE
+SEV_READ            equ SER_BASE + 3
+SEV_WRITE           equ SER_BASE + 6
+SEV_IOCTL           equ SER_BASE + 9
+SEV_CLOSE           equ SER_BASE + 12
+SEV_REVENTS         equ SER_BASE + 15
+SEV_TICK            equ SER_BASE + 18
+SEV_IRQ             equ SER_BASE + 21
+SEV_DISK            equ SER_BASE + 24
+SEV_MASK            equ SER_BASE + 27
+
 DEV_PAGES           equ 15
 DEV_BASE            equ (ARENA_LAST + 1 - DEV_PAGES) << 8
 DEV_INIT            equ DEV_BASE
+DEV_V_OK            equ DEV_BASE + 3
+DEV_V_ERR           equ DEV_BASE + 6
+DEV_V_EINVAL        equ DEV_BASE + 9
+DEV_V_RWSHORT       equ DEV_BASE + 12
+SER_SIZE            equ 31
+SER_REC             equ DEV_BASE + DEV_PAGES * 256 - SER_SIZE
+SER                 equ SER_REC
 
 PORT_HD_CLOCK       equ 0C2h
 PORT_HD_CMD2        equ 0C4h
@@ -488,6 +509,39 @@ IRQ_SER_RX_BIT      equ 5
 IRQ_SER_ERR_BIT     equ 6
 IRQ_SER_TX          equ 1 << IRQ_SER_TX_BIT
 IRQ_SER_RX          equ 1 << IRQ_SER_RX_BIT
+
+S_PHASE             equ 0
+S_RXPG              equ 1
+S_TXPG              equ 2
+S_RXH               equ 3
+S_RXT               equ 4
+S_TXH               equ 5
+S_TXT               equ 6
+S_CFG               equ 7
+S_LINE              equ 13
+S_HI_SET            equ 14
+S_HI_CLR            equ 15
+S_ERR_SET           equ 16
+S_ERR_SEEN          equ 17
+S_GAP               equ 18
+S_BRK               equ 19
+S_LINGER            equ 20
+S_STATS             equ 21
+S_DELAY             equ 29
+PH_CLOSED           equ 0
+PH_OPEN             equ 1
+PH_LINGER           equ 2
+LN_DTR              equ 01h
+LN_DISK             equ 02h
+LN_HUNG             equ 04h
+LN_DCD              equ 08h
+SER_RX_HIGH         equ 192
+SER_RX_LOW          equ 64
+SER_TX_WAKE         equ 128
+DTR_GAP_TICKS       equ 4
+LINGER_TICKS        equ 60
+BREAK_MAX           equ 30
+CPU_HZ              equ 2027520
 
 O_READ              equ 01h
 O_WRITE             equ 02h

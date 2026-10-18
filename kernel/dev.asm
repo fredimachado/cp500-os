@@ -1,18 +1,31 @@
                 include "kernel.sym"
 
-SER_SIZE            equ 31
-SER_REC             equ DEV_BASE + DEV_PAGES * 256 - SER_SIZE
-SER                 equ SER_REC
-
                 org DEV_BASE
 
+                jp dev_init
+                jp dev_ok
+                jp dev_err
+                jp dev_err_einval
+                jp rw_short
+
+                assert DEV_INIT == DEV_BASE
+                assert DEV_V_OK == DEV_BASE + 3
+                assert DEV_V_ERR == DEV_BASE + 6
+                assert DEV_V_EINVAL == DEV_BASE + 9
+                assert DEV_V_RWSHORT == DEV_BASE + 12
+
 dev_init:
-                ld hl, OWNER + ((DEV_BASE >> 8) - ARENA_FIRST)
-                ld b, DEV_PAGES
+                ld hl, OWNER + ((SER_BASE >> 8) - ARENA_FIRST)
+                ld b, SER_PAGES + DEV_PAGES
 di_own:
                 ld (hl), 0FFh
                 inc hl
                 djnz di_own
+                ld de, ser_path
+                ld hl, SER_BASE
+                ld b, SER_PAGES
+                call load_file
+                jr c, di_ser_fail
                 xor a
                 ld hl, VOL_CUR
                 ld (hl), a
@@ -28,7 +41,7 @@ init_s0:
                 ld a, DTR_GAP_TICKS
                 ld (SER + S_GAP), a
                 out (PORT_SER_RESET), a
-                call mask_out
+                call SEV_MASK
                 ld hl, hook_jumps
                 ld de, HOOK_SLOT
                 ld bc, hook_end - hook_jumps
@@ -39,6 +52,12 @@ init_s0:
                 ld (SYS_RST08 + 1), hl
                 ei
                 jp hd_clock
+di_ser_fail:
+                ld a, 'S'
+                ld (VIDEO_BASE), a
+                halt
+
+ser_path:       db "/sys/ser", 0
 
 hook_jumps:
                 jp blk_hook
@@ -64,6 +83,13 @@ dev_table_end:
 DEV_ROWS            equ (dev_table_end - dev_table) / DR_SIZE
                 assert KIND_SER == KIND_DEV + 0 && KIND_HD == KIND_DEV + 1 && DEV_ROWS == 2
 ser0_name:      db "/dev/ser0", 0
+
+ser_open:       jp SEV_OPEN
+ser_read:       jp SEV_READ
+ser_write:      jp SEV_WRITE
+ser_ioctl:      jp SEV_IOCTL
+ser_close:      jp SEV_CLOSE
+ser_revents:    jp SEV_REVENTS
 
 ; A = kind, E = DR_* field. Keeps BC, HL, IX.
 dev_go:
@@ -238,7 +264,7 @@ dv_tick:
                 push bc
                 push de
                 push hl
-                call ser_tick
+                call SEV_TICK
                 ld a, CH_TICK
                 call wake
                 pop hl
@@ -259,7 +285,7 @@ di_rx:
                 push de
                 push hl
                 ld a, b
-                call ser_irq
+                call SEV_IRQ
                 pop hl
                 pop de
                 pop bc
@@ -271,7 +297,7 @@ di_tx:
                 push de
                 push hl
                 ld a, b
-                call ser_irq
+                call SEV_IRQ
                 pop hl
                 pop de
                 pop bc
@@ -564,7 +590,7 @@ rw_fail:
 
                 include "vol.asm"
                 include "hd.asm"
-                include "ser.asm"
+                assert $ < DEV_BASE + 3840
                 assert $ <= SER_REC
                 org SER_REC
                 ds SER_SIZE, 0
