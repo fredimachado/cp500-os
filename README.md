@@ -9,6 +9,17 @@ Status: milestone 8 (W5100 sockets, telnet, get, and time sync). See [docs/desig
 Development and testing use the [heh8080](https://github.com/fredimachado/heh8080)
 emulator's CP-500 machine.
 
+## Running
+
+Build the boot disk, then start the desktop emulator with it in drive 0. The
+CP-500 ROMs must already be in `%LOCALAPPDATA%\heh8080\` (or `cp500/` next to
+the executable). Click the logo on the bezel to attach RS-232.
+
+```sh
+dotnet build image/Cp500Os.Disk.proj
+dotnet run --project external/heh8080/src/Heh8080.Desktop -p:PublishAot=false -- --disk build/cp500-os.dsk
+```
+
 ## Building
 
 Requirements: the .NET 10 SDK and PowerShell 7. On Linux and macOS, `make`
