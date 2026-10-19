@@ -49,12 +49,23 @@ public sealed class Milestone8Tests
     public async Task GetPrintsOkForHttp200()
     {
         W5100Board.Require();
-        using var listen = new TcpListener(IPAddress.Loopback, 9876);
+        using var listen = new TcpListener(IPAddress.Loopback, 0);
         listen.Start();
-        Task serve = ServeHttpOnceAsync(listen);
-        RunResult run = await RunNetworkAsync(
-            "/bin/get http://127.0.0.1:9876/ok",
-            "GET OK");
+        int port = ((IPEndPoint)listen.LocalEndpoint).Port;
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task serve = ServeHttpOnceAsync(listen, release.Task);
+        RunResult run;
+        try
+        {
+            run = await RunNetworkAsync(
+                $"/bin/get http://127.0.0.1:{port}/ok",
+                "GET OK");
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
         await serve;
         Assert.Contains("GET OK", Visible(run.Stdout));
     }
@@ -71,12 +82,18 @@ public sealed class Milestone8Tests
         Assert.Contains("2026-01-01 00:00:00", Visible(run.Stdout));
     }
 
-    private static async Task ServeHttpOnceAsync(TcpListener listen)
+    private static async Task ServeHttpOnceAsync(TcpListener listen, Task release)
     {
         using TcpClient client = await listen.AcceptTcpClientAsync(TestContext.Current.CancellationToken);
         using NetworkStream stream = client.GetStream();
         byte[] response = "HTTP/1.0 200 OK\r\n\r\nOK"u8.ToArray();
         await stream.WriteAsync(response, TestContext.Current.CancellationToken);
+        client.Client.Shutdown(SocketShutdown.Send);
+        await release.WaitAsync(TestContext.Current.CancellationToken);
+        var buffer = new byte[256];
+        while (client.Available > 0 && await stream.ReadAsync(buffer, TestContext.Current.CancellationToken) > 0)
+        {
+        }
     }
 
     private static async Task<RunResult> RunFixtureAsync(string command, string until)
