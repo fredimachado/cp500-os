@@ -10,5 +10,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Cp500Os.C5fs\Cp500Os.C5fs.csproj" />
+    <ProjectReference Include="..\..\external\heh8080\src\Heh8080.Devices\Heh8080.Devices.csproj" />
   </ItemGroup>
 </Project>

@@ -171,7 +171,17 @@ KIND_PIPE_W         equ 6
 KIND_DEV            equ 7
 KIND_SER            equ KIND_DEV + 0
 KIND_HD             equ KIND_DEV + 1
-KIND_NET            equ KIND_DEV + 2
+KIND_NULL           equ KIND_DEV + 2
+KIND_CON            equ KIND_DEV + 3
+KIND_CON0           equ KIND_DEV + 4
+KIND_CON1           equ KIND_DEV + 5
+KIND_TTY            equ KIND_DEV + 6
+KIND_FD0            equ KIND_DEV + 7
+KIND_FD1            equ KIND_DEV + 8
+KIND_FD2            equ KIND_DEV + 9
+KIND_FD3            equ KIND_DEV + 10
+KIND_PRN            equ KIND_DEV + 11
+KIND_NET            equ KIND_DEV + 12
 
 TASK_SLOTS          equ 8
 TS_FREE             equ 0
@@ -186,6 +196,7 @@ CH_KEY              equ 1
 CH_TICK             equ 2
 CH_CHILD            equ 3
 CH_SER              equ 4
+CH_SLEEP            equ 5
 CH_PIPE             equ 8               ; + pipe
 
 NCON                equ 2
@@ -410,7 +421,18 @@ W5_MR_IND           equ 03h
 
 IOCTL_SETFG         equ 01h             ; IX = foreground task, 0 none
 IOCTL_SETMODE       equ 02h             ; IX = console mode bits
+CON_GETHIST         equ 5               ; IX = slot byte then 128-byte line
+CON_PUTHIST         equ 6               ; IX = null-terminated line
 CON_RAW             equ 01h             ; BREAK reads as KEY_BREAK, no dead keys
+HIST_LINES          equ 4
+HIST_LINE           equ 128
+HIST_META           equ 4               ; head, count, pad, pad per console
+HIST_CON_SIZE       equ HIST_META + HIST_LINES * HIST_LINE
+HIST_PAGE           equ 0BFh              ; below SER/DEV (D4h+); not the E8h arena/SER alias
+OWNER_HIST          equ 0FEh              ; keeps CON_HIST pages out of the program arena
+HIST_PAGES          equ 5
+CON_HIST            equ HIST_PAGE << 8
+                assert CON_HIST + NCON * HIST_CON_SIZE <= (HIST_PAGE + HIST_PAGES) << 8
 KEY_BREAK           equ 03h
 
 POLLIN              equ 01h
@@ -449,8 +471,10 @@ HOOK_SLOT           equ SYS_RST10
                 assert SYS_RST18 == HOOK_SLOT + 3 && SYS_RST20 == HOOK_SLOT + 6
                 assert SYS_RST28 == HOOK_SLOT + 9
 
-SER_PAGES           equ 7
-SER_BASE            equ 0DA00h
+; Pages below the old base hold the six new calls and the extra devices.
+; The 8 KiB kernel and the device image have no room for them.
+SER_PAGES           equ 13
+SER_BASE            equ 0D400h
 SEV_OPEN            equ SER_BASE
 SEV_READ            equ SER_BASE + 3
 SEV_WRITE           equ SER_BASE + 6
@@ -461,6 +485,14 @@ SEV_TICK            equ SER_BASE + 18
 SEV_IRQ             equ SER_BASE + 21
 SEV_DISK            equ SER_BASE + 24
 SEV_MASK            equ SER_BASE + 27
+; Fixed jumps in /sys/ser. The bodies sit above ser_body and below the
+; syscall block, so editing a body does not move these addresses.
+EXT_OPEN            equ 0DAC0h
+EXT_GO              equ 0DAC3h
+BOOT_BODY           equ 0DAC6h
+SEEK_BODY           equ 0DAC9h
+FD_ROUTE            equ 0DACCh
+FD_DRV              equ 0DACFh
 
 DEV_PAGES           equ 15
 DEV_BASE            equ (ARENA_LAST + 1 - DEV_PAGES) << 8
@@ -469,6 +501,24 @@ DEV_V_OK            equ DEV_BASE + 3
 DEV_V_ERR           equ DEV_BASE + 6
 DEV_V_EINVAL        equ DEV_BASE + 9
 DEV_V_RWSHORT       equ DEV_BASE + 12
+DEV_SLEEP           equ DEV_BASE + 15
+DEV_UPTIME          equ DEV_BASE + 18
+DEV_ALLOC           equ DEV_BASE + 21
+DEV_FREE            equ DEV_BASE + 24
+DEV_MEMINFO         equ DEV_BASE + 27
+DEV_DUP2            equ DEV_BASE + 30
+DEV_SEEK            equ DEV_BASE + 33
+DEV_INIT_BOOT       equ DEV_BASE + 36
+VB_ENT              equ DEV_BASE + 39
+; Fixed tails of /sys/ser. Each one jumps to the body. The bodies sit
+; under this table, so editing a body does not move the address dev calls.
+SC_SLEEP            equ 0E0EDh
+SC_UPTIME           equ 0E0F0h
+SC_ALLOC            equ 0E0F3h
+SC_FREE             equ 0E0F6h
+SC_MEMINFO          equ 0E0F9h
+SC_DUP2             equ 0E0FCh
+SC_HIST             equ 0DE25h
 SER_SIZE            equ 31
 SER_REC             equ DEV_BASE + DEV_PAGES * 256 - SER_SIZE
 SER                 equ SER_REC

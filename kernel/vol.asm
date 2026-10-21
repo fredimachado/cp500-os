@@ -119,6 +119,11 @@ vol_inode:
                 ret
 
 vol_route:
+                call FD_ROUTE
+                jr c, vr_std
+                push de
+                jr vr_stamp
+vr_std:
                 push de
                 ld hl, vr_mnt
 vr_cmp:
@@ -197,6 +202,12 @@ vr_mnt:         db "/mnt/hd0p", 0
 vr_root:        db "/", 0
 
 vol_mount:
+                push af
+                add a, FD_DRV & 0FFh
+                ld l, a
+                ld h, FD_DRV >> 8
+                ld (hl), 0
+                pop af
                 ld (vm_slot), a
                 call hd_probe
                 ret c
@@ -262,9 +273,22 @@ blk_hook:
                 ld a, (hl)
                 or a
                 jr nz, bh_disk
+                ld a, DISK_DRIVE0 | DISK_MFM
+                ld (fr_sel + 1), a
                 jp SEV_DISK
 
 bh_disk:
+                ld a, (VOL_CUR)
+                add a, FD_DRV & 0FFh
+                ld l, a
+                ld h, FD_DRV >> 8
+                ld a, (hl)
+                or a
+                jr z, bh_hd
+                or DISK_MFM
+                ld (fr_sel + 1), a
+                jp SEV_DISK
+bh_hd:
                 ld hl, (VOL_BLOCKS)
                 or a
                 sbc hl, de

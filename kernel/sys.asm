@@ -85,6 +85,10 @@ syscall:
                 exx
                 ex af, af'
                 ld (SC_FRAME), sp
+                push bc
+                xor a
+                call VB_ENT
+                pop bc
                 ld a, c
                 cp SYS_SYNC
                 jp z, sys_sync
@@ -151,17 +155,17 @@ syscall_exit:
 
 sc_table:
                 dw sys_exit, sys_spawn, sys_wait, sys_getpid
-                dw sys_yield, sc_einval, sys_kill, sc_einval
+                dw sys_yield, DEV_SLEEP, sys_kill, DEV_UPTIME
                 dw sc_einval, sc_einval, sc_einval, sc_einval
                 dw sc_einval, sc_einval, sc_einval, sc_einval
-                dw sc_einval, sc_einval, sc_einval, sc_einval
+                dw DEV_ALLOC, DEV_FREE, DEV_MEMINFO, sc_einval
                 dw sc_einval, sc_einval, sc_einval, sc_einval
                 dw sc_einval, sc_einval, sc_einval, sc_einval
                 dw sc_einval, sc_einval, sc_einval, sc_einval
                 dw sys_open, sys_close, sys_read, sys_write
-                dw sys_seek, sys_stat, sys_fstat, sys_readdir
+                dw DEV_SEEK, sys_stat, sys_fstat, sys_readdir
                 dw sys_mkdir, sys_remove, sys_rename, sys_chdir
-                dw sys_getcwd, sc_einval, sys_pipe, sys_ioctl
+                dw sys_getcwd, DEV_DUP2, sys_pipe, sys_ioctl
                 assert $ - sc_table == (SYS_IOCTL + 1) * 2
 
 ; HL = resident routine. It returns carry and A, or a result in HL.
@@ -403,6 +407,19 @@ read_con:
                 cp b
                 jr nz, read_round
 read_store:
+                ld a, b
+                add a, a
+                add a, CON_FG & 0FFh
+                ld l, a
+                ld h, CON_FG >> 8
+                ld a, (hl)
+                or a
+                jr z, read_store_get
+                ld e, a
+                ld a, (CUR)
+                cp e
+                jr nz, read_round
+read_store_get:
                 call kbd_get
                 jr nc, read_round
                 ld hl, (io_buf)
@@ -555,6 +572,9 @@ sys_ioctl:
                 ld h, CON_FG >> 8
                 push ix
                 pop de
+                ld a, c
+                cp 5
+                jp nc, SC_HIST
                 ld a, b
                 or d
                 jp nz, sc_einval
@@ -562,12 +582,7 @@ sys_ioctl:
                 jr z, ioctl_fg
                 dec c
                 jp nz, sc_einval
-                inc l
-                inc l
-                ld a, e
-                and ~CON_RAW
-                jp nz, sc_einval
-                jr ioctl_set
+                jr ioctl_mode
 ioctl_fg:
                 ld a, e
                 cp TASK_SLOTS
@@ -585,16 +600,15 @@ ioctl_set:
                 ld l, a
                 ld h, 0
                 jp syscall_ok
+ioctl_mode:
+                inc l
+                inc l
+                ld a, e
+                and ~CON_RAW
+                jp nz, sc_einval
+                jr ioctl_set
 
 sys_seek:
-                ld (io_buf), hl
-                ld a, b
-                ld (seek_whence), a
-                call fd_get
-                jp c, syscall_err
-                cp KIND_FILE
-                jr z, seek_file
-                jp sc_einval
 seek_file:
                 call take_inode
                 jp c, syscall_err

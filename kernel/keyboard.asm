@@ -49,8 +49,6 @@ kbd_row:
                 cp 8
                 jr nz, kbd_row
 
-                xor a
-                ld (kbd_replaced), a
                 ld c, 0
                 ld hl, kbd_fresh
 kbd_emit_row:
@@ -81,9 +79,6 @@ kbd_next_bit:
                 cp 8
                 jr nz, kbd_emit_row
 
-                ld a, (kbd_replaced)
-                or a
-                ret nz
                 ld a, (KBD_REP_ROW)
                 cp 0FFh
                 ret z
@@ -129,8 +124,6 @@ kbd_fresh_key:
                 ld (KBD_REP_COL), a
                 xor a
                 ld (KBD_REP_AGE), a
-                ld a, 1
-                ld (kbd_replaced), a
                 ret
 
 ; Carry set when the cell is dropped. C and B are kept.
@@ -331,7 +324,6 @@ kbd_get:
 
                 kvar kbd_now, 8
                 kvar kbd_fresh, 8
-                kvar kbd_replaced, 1
 
 kbd_arrow_final:
                 db 'B', 'D', 'C'

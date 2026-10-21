@@ -7,6 +7,25 @@
                 jp dev_err
                 jp dev_err_einval
                 jp rw_short
+                jp SC_SLEEP
+                jp SC_UPTIME
+                jp SC_ALLOC
+                jp SC_FREE
+                jp SC_MEMINFO
+                jp SC_DUP2
+                jp SEEK_BODY
+                jp BOOT_BODY
+                jp vol_bind
+
+                assert DEV_SLEEP == DEV_BASE + 15
+                assert DEV_UPTIME == DEV_BASE + 18
+                assert DEV_ALLOC == DEV_BASE + 21
+                assert DEV_FREE == DEV_BASE + 24
+                assert DEV_MEMINFO == DEV_BASE + 27
+                assert DEV_DUP2 == DEV_BASE + 30
+                assert DEV_SEEK == DEV_BASE + 33
+                assert DEV_INIT_BOOT == DEV_BASE + 36
+                assert VB_ENT == DEV_BASE + 39
 
                 assert DEV_INIT == DEV_BASE
                 assert DEV_V_OK == DEV_BASE + 3
@@ -21,6 +40,12 @@ di_own:
                 ld (hl), 0FFh
                 inc hl
                 djnz di_own
+                ld hl, OWNER + (HIST_PAGE - ARENA_FIRST)
+                ld b, HIST_PAGES
+di_hist:
+                ld (hl), OWNER_HIST
+                inc hl
+                djnz di_hist
                 ld de, ser_path
                 ld hl, SER_BASE
                 ld b, SER_PAGES
@@ -82,6 +107,7 @@ dev_table:
 dev_table_end:
 DEV_ROWS            equ (dev_table_end - dev_table) / DR_SIZE
                 assert KIND_SER == KIND_DEV + 0 && KIND_HD == KIND_DEV + 1 && DEV_ROWS == 2
+
 ser0_name:      db "/dev/ser0", 0
 
 ser_open:       jp SEV_OPEN
@@ -96,7 +122,7 @@ dev_go:
                 sub KIND_DEV
                 ret c
                 cp DEV_ROWS
-                ret nc
+                jp nc, EXT_GO
                 ld b, a
                 ld c, e
                 pop hl
@@ -181,16 +207,14 @@ dc_rw:
                 push de
                 cp KIND_DEV
                 jr c, dc_pop_ix
-                ld a, d
-                sub KIND_DEV
-                cp DEV_ROWS
-                jr nc, dc_pop_ix
+                ld c, a
                 ld a, (ix + F_C)
                 cp SYS_READ
                 ld e, DR_READ
                 jr z, dc_go
                 ld e, DR_WRITE
 dc_go:
+                ld a, c
                 call dev_go
                 jr dc_pop_ix
 dc_pop_ix:
@@ -199,6 +223,11 @@ dc_pop_ix:
 
 dev_open:
                 push de
+                call EXT_OPEN
+                jr c, do_scan
+                pop de
+                ret
+do_scan:
                 ld c, 0
                 ld hl, dev_table
 do_row:
@@ -275,6 +304,8 @@ dv_tick:
                 push hl
                 call SEV_TICK
                 ld a, CH_TICK
+                call wake
+                ld a, CH_SLEEP
                 call wake
                 pop hl
                 pop de

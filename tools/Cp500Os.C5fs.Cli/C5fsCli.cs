@@ -135,6 +135,13 @@ public static class C5fsCli
             }
         }));
 
+        Argument<string> sourceDisk = new("source") { Description = "TRS-80 Model III JV3 or DMK disk image" };
+        Command import = new("import", "Copy files from a Model III disk into an existing C5FS image") { sourceDisk, image };
+        import.SetAction(Guarded(parse => Mutate(
+            parse.GetRequiredValue(image),
+            time,
+            volume => ModelIIIImport.ImportFromFile(volume, parse.GetRequiredValue(sourceDisk), time))));
+
         Command check = new("check", "Check the image for consistency (exit 1 when problems are found)") { image };
         check.SetAction(parse => Guard(parse, () =>
         {
@@ -156,7 +163,7 @@ public static class C5fsCli
 
         return new RootCommand("Build and inspect C5FS floppy images for cp500-os")
         {
-            format, info, ls, mkdir, put, get, rm, sys, check,
+            format, info, ls, mkdir, put, get, rm, sys, import, check,
         };
     }
 

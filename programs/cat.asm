@@ -24,7 +24,11 @@ cat_read:
                 jp c, fail
                 ld a, h
                 or l
-                jp z, exit0
+                jr nz, cat_write
+                ld a, 0Dh
+                call putc
+                jp exit0
+cat_write:
                 push hl
                 pop ix
                 ld c, SYS_WRITE

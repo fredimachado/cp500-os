@@ -259,6 +259,7 @@ c_say:
                 ld hl, w_privmsg
                 call wire
                 ld a, (cur_win)
+                ld de, (fmt_arg)
                 ld hl, f_own
                 jp say
 cs_notarg:
@@ -287,6 +288,7 @@ c_me:
                 ld hl, w_action
                 call wire
                 ld a, (cur_win)
+                ld de, (fmt_arg)
                 ld hl, f_ownact
                 jp say
 

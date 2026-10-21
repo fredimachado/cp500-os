@@ -353,9 +353,11 @@ say:
                 ld (fmt_sink), hl
                 pop hl
                 push hl
-                ld de, 0
+                ld de, (fmt_arg)
                 pop hl
                 call fmt_run
+                ld hl, 0
+                ld (fmt_arg), hl
                 call say_commit
                 ld a, (say_win)
                 ld b, a

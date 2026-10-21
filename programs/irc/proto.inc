@@ -565,7 +565,7 @@ w_quit:         db "QUIT :", F_ARG, 0
 f_chanmsg:      db "<", F_NICK, "> ", F_LAST, 0
 f_privmsg:      db "*", F_NICK, "* ", F_LAST, 0
 f_notice:       db "-", F_NICK, "- ", F_LAST, 0
-f_action:       db "* ", F_NICK, " ", F_LAST, 0
+f_action:       db "* ", F_NICK, " ", F_ARG, 0
 f_join:         db "*** ", F_NICK, " joined ", F_PAR, 0, 0
 f_part:         db "*** ", F_NICK, " left", 0
 f_kick:         db "*** ", F_NICK, " was kicked", 0
@@ -617,6 +617,8 @@ h_ping:
 
 h_privmsg:
                 call ctcp_split
+                or a
+                ret nz
                 call hj_channel
                 call win_for
                 push af
@@ -902,24 +904,34 @@ ctcp_split:
                 ex de, hl
                 call lookup
                 jr c, ctcp_plain
+                ld bc, ctcp_done
+                push bc
                 jp (hl)
+ctcp_done:
+                ld a, 1
+                ret
 ctcp_plain:
                 xor a
                 ret
 
 t_action:
+                ld hl, (ctcp_ptr)
+                ld (fmt_arg), hl
                 ld hl, (msg_par)
                 call win_for
                 ld hl, f_action
-                jp say
+                call say
+                ret
 
 t_version:
                 ld hl, w_version
-                jp wire
+                call wire
+                ret
 
 t_ping:
                 ld hl, w_ctcp_ping
-                jp wire
+                call wire
+                ret
 
 ctcp_word:
                 ld hl, (ctcp_ptr)

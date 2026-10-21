@@ -38,13 +38,14 @@ init_rec:       db 0, 0, 0, 0, 0, 0, 0, 1, 2, 3, 4, 5, 0FFh, 0FFh, 1, 0
 
 ; Task 0. Starts a shell for each console that wants one, else idles in HALT.
 init_task:
-                di
+                jp DEV_INIT_BOOT
+init_task_cont:
+                ei
                 ld a, (CON_WANT)
                 or a
                 jr nz, init_spawn
-                ei
                 halt
-                jr init_task
+                jr init_task_cont
 init_spawn:
                 ld hl, CON_WANT
                 ld ix, 0

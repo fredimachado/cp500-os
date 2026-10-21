@@ -206,7 +206,32 @@ public sealed class Volume
 
         using Mutation mutation = BeginMutation();
         (ushort parent, _) = ResolveDirectory(parsed.Parent);
-        WriteContent(parent, parsed, content, mutation.Now, contiguous: false);
+        WriteContent(parent, parsed, content, mutation.Now, mutation.Now, contiguous: false);
+        mutation.Complete();
+    }
+
+    public void WriteFile(string path, ReadOnlySpan<byte> content, C5Time created, C5Time modified)
+    {
+        VolumePath parsed = VolumePath.Parse(path);
+        if (parsed.IsRoot)
+        {
+            throw new C5fsException(C5fsError.EISDIR, "'/' is a directory");
+        }
+
+        if (parsed.Equals(KernelPath))
+        {
+            throw new C5fsException(
+                C5fsError.EINVAL, $"'{parsed}' must be one contiguous run recorded in the superblock; install it as the kernel (c5fs sys --kernel)");
+        }
+
+        if (content.Length > Inode.MaxSize)
+        {
+            throw new C5fsException(C5fsError.EINVAL, $"{content.Length} bytes is more than the {Inode.MaxSize}-byte file size limit");
+        }
+
+        using Mutation mutation = BeginMutation();
+        (ushort parent, _) = ResolveDirectory(parsed.Parent);
+        WriteContent(parent, parsed, content, modified, created, contiguous: false);
         mutation.Complete();
     }
 
@@ -344,7 +369,7 @@ public sealed class Volume
                 : throw new C5fsException(C5fsError.ENOTDIR, $"'{sys}' is not a directory"))
             : MakeDirectory(InodeTable.RootNumber, sys.Name, mutation.Now);
 
-        Extent run = WriteContent(sysNumber, KernelPath, kernel, mutation.Now, contiguous: true).Extents.Single();
+        Extent run = WriteContent(sysNumber, KernelPath, kernel, mutation.Now, mutation.Now, contiguous: true).Extents.Single();
         _superblock = _superblock with { Kernel = run };
         mutation.Complete();
     }
@@ -437,7 +462,7 @@ public sealed class Volume
         return number;
     }
 
-    private Inode WriteContent(ushort parent, VolumePath path, ReadOnlySpan<byte> content, C5Time now, bool contiguous)
+    private Inode WriteContent(ushort parent, VolumePath path, ReadOnlySpan<byte> content, C5Time modified, C5Time createdForNew, bool contiguous)
     {
         Inode parentInode = _inodes.Get(parent);
         DirectorySlot? existing = _directories.Find(parentInode, path.Name);
@@ -459,14 +484,15 @@ public sealed class Volume
             : _allocator.Grow([], blocks);
         FileContent.Write(_store, extents, content);
 
+        C5Time created = previous?.Created ?? createdForNew;
         Inode inode = new(
-            InodeKind.File, previous?.Attributes ?? InodeAttributes.None, content.Length, now, previous?.Created ?? now, extents);
+            InodeKind.File, previous?.Attributes ?? InodeAttributes.None, content.Length, modified, created, extents);
         ushort number = existing?.InodeNumber ?? _inodes.Allocate();
         _inodes.Write(number, inode);
         if (existing is null)
         {
             RequireMutable(parentInode, path.Parent);
-            _directories.Add(parent, path.Name, number, now);
+            _directories.Add(parent, path.Name, number, modified);
         }
 
         return inode;

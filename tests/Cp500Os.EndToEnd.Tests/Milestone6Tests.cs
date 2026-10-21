@@ -187,7 +187,7 @@ internal static class SerialBoard
             "--disk0", Path.Combine(RepoPaths.Root, "build", "cp500-os.dsk"),
             "--until-screen", "sh>", "--timeout", "20s",
             "--type", "/lib/sertest.c5x{ENTER}",
-            "--until-screen", "exit",
+            "--run", "2s",
             "--dump-screen").GetAwaiter().GetResult();
         string[] lines = probe.Stdout.Split('\n')
             .Select(line => line.Replace("\u2588", "").TrimEnd(' ', '\r'))

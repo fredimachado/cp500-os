@@ -41,7 +41,7 @@ fr_track:
                 add a, a
                 add a, a
                 add a, a
-                or DISK_DRIVE0 | DISK_MFM
+fr_sel:         or DISK_DRIVE0 | DISK_MFM
                 out (PORT_DISK), a
                 ld a, l
                 out (FDC_DATA), a
@@ -100,14 +100,11 @@ fr_status:
                 jr nz, fr_fail
 fr_ok:
                 xor a
-                pop hl
-                pop de
-                ei
-                ret
-
+                jr fr_epilog
 fr_fail:
                 ld a, EIO
                 scf
+fr_epilog:
                 pop hl
                 pop de
                 ei

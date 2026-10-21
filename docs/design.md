@@ -1,6 +1,8 @@
 # cp500-os Design
 
-Status: milestone 6 is implemented. Numbers marked "budget" are targets to
+Status: milestone 8 is implemented, including the six syscalls loaded from
+`/sys/ser`, the extra device nodes and `/mnt/fd` mounts, shell line editing,
+and the host TRSDOS/LDOS importer. Numbers marked "budget" are targets to
 measure against, not facts. Addresses, escape sequences and the keyboard map
 below are the ones the kernel uses.
 
@@ -26,7 +28,10 @@ Non-goals:
 
 - Memory protection. There is no MMU; a bad program can crash the machine.
 - Running TRSDOS, LDOS or BASIC programs. They call ROM and DOS entry points
-  this OS does not provide. A read-only importer copies their files instead.
+  this OS does not provide. The host `c5fs import` command copies files from
+  TRSDOS and LDOS disks in JV3 and DMK images instead.
+- On-machine `fsck`, Model III WAIT-plus-interrupt floppy transfers,
+  32-column video, a RAM disk, and a repository license.
 - Mouse-driven GUI, Unicode, multiple users or permissions.
 
 ## 2. Hardware contract
@@ -162,7 +167,7 @@ blocking. If task 1 (the first shell) exits, the machine halts.
 
 1. Pushes `AF`, `BC`, `DE`, and `HL`.
 2. Reads `ECh` to acknowledge the timer.
-3. Advances the tick counter. If the keyboard ring is not empty, it wakes tasks blocked on keyboard input. `sleep` is not implemented.
+3. Advances the tick counter. If the keyboard ring is not empty, it wakes tasks blocked on keyboard input. Every tick also wakes tasks blocked on `sleep`, so the call reruns until the duration expires.
 4. Scans the keyboard and blinks the cursor.
 5. If the quantum is already zero and the kernel is not inside a system call, it pushes the rest of the registers and switches. A tick during a system call only counts the quantum down.
 6. Otherwise it pops `AF`, `BC`, `DE`, and `HL`, enables interrupts, and returns with `RETI`.
@@ -348,14 +353,32 @@ Time:
 Limits: 8 descriptors per task, 16 open files system-wide, 4 pipes of 256 bytes
 each, paths up to 127 bytes.
 
-### Implemented calls (through milestone 6)
+### Implemented calls
 
-The kernel implements `exit`, `spawn`, `wait`, `getpid`, `yield`, `kill`,
-`open`, `close`, `read`, `write`, `seek`, `stat`, `fstat`, `readdir`,
-`mkdir`, `remove`, `rename`, `chdir`, `getcwd`, `pipe`, `ioctl`, `poll`,
-`sync`, `time`, and `settime`. Calls that are not implemented, including
-`sleep`, `uptime`, `alloc`, `free`, `meminfo`, and `dup2`, return `EINVAL`
-with `HL = 0` and carry set.
+The kernel implements every call in the table above except the reserved socket
+range `50h-5Fh`. The bodies of `sleep`, `uptime`, `alloc`, `free`, `meminfo`,
+and `dup2` live in `/sys/ser`; `sc_table` jumps to `DEV_SLEEP`, `DEV_UPTIME`,
+`DEV_ALLOC`, `DEV_FREE`, `DEV_MEMINFO`, and `DEV_DUP2`.
+
+`RST 08h` saves the syscall frame and sets `SC_FRAME` before `vol_bind`, so a
+blocked call reruns with the same register arguments. `sc_sleep` reads the
+duration from the saved frame's `DE`, not from live `DE` after a wake.
+
+`sleep` (`05h`) takes the duration in `DE` ticks. `DE = 0` returns immediately
+and does not arm. `DE >= 8000h` is `EINVAL`. On the first blocking entry the
+kernel stores the start tick in `T_ARG` (`40C0h`) for the current task: bit 15
+(the high byte's bit 7) is the armed flag, and the low 15 bits hold the tick. Each timer
+tick wakes sleepers on channel `CH_SLEEP`; the call blocks again until
+`(TICK_COUNT - start) >= DE`, then clears `T_ARG` and returns.
+
+`uptime` (`07h`) copies the 4-byte tick counter at `TICK_COUNT` through the
+pointer in `DE`. `alloc` (`10h`) takes a page count in `DE` (high byte must be
+0), allocates a contiguous run from the arena, and returns the base address in
+`HL`. `free` (`11h`) takes a page-aligned address in `DE` and returns pages
+owned by the caller to the free pool. `meminfo` (`12h`) fills a 6-byte record
+at `DE`: free page count, largest free run in pages, total arena pages, and a
+zero pad byte. `dup2` (`2Dh`) copies the open file of `DE` onto `HL`, dropping
+any previous descriptor there.
 
 Success is `A = 0`, carry clear, and the result in `HL`. Failure is `A` set
 to the code, `HL = 0`, and carry set. `exit` does not return. `spawn` uses
@@ -412,23 +435,34 @@ to `load + image + bss` and sets `SP` to `load + image + bss + stack + 192`.
 
 ### Character devices
 
-Milestone 5 still wires stdin, stdout and stderr to the task's console through
-descriptors 0-2. `/dev/ser0` is matched on `open` before any file system
-walk; other paths in the table below are still targets.
+Stdin, stdout and stderr are wired to the task's console through descriptors
+0-2. Paths under `/dev/` name devices, not files. They appear in no directory.
 
-Paths under `/dev/` name devices, not files. The kernel resolves them from a
-fixed table before any file system walk, and they appear in no directory.
+The kernel's `dev_table` has two rows: `/dev/ser0` and `/dev/hd0`, each with
+a probe and block driver. Every other shipped device name is resolved in
+`/sys/ser` before any file system walk:
 
 | Path | Device | Present |
 |------|--------|---------|
 | `/dev/con` | The task's controlling console | Always |
+| `/dev/con0`, `/dev/con1` | Console 0 or 1 | Always |
+| `/dev/tty` | The active virtual console | Always |
+| `/dev/null` | Discards writes, reads return 0 | Always |
+| `/dev/fd0`-`/dev/fd3` | Raw floppy sectors for drives 0-3 | When the drive responds |
+| `/dev/prn` | Parallel printer at port `F8h`; busy is bit 7 | Always |
 | `/dev/ser0` | Serial board (section 9) | When the probe finds the UART |
+| `/dev/hd0` | Virtual hard disk (section 9) | When FreHD answers |
 
-`open` of a device whose probe failed is `ENODEV`. `create`, `truncate`,
-`append` and `exclusive` on a device are `EINVAL`, and so are `seek` and
-`fstat`. `/dev/ser0` is exclusive: a second `open` while its open file exists
-is `EBUSY`. Descriptors that share the open file through `spawn` or `dup2`
-share the device.
+`/mnt/fd1`, `/mnt/fd2`, and `/mnt/fd3` mount floppy drives 1-3 into volume
+slots 1-3 on first access. A missing drive returns `ENODEV` (`18`). There is no
+separate volume slot tied to a same-numbered hard-disk partition.
+
+`open` of a probed device that is absent is `ENODEV`. `create`, `truncate`,
+`append` and `exclusive` on a device are `EINVAL`, and so are `fstat` and
+`seek` except on `/dev/fd0`-`/dev/fd3`, where `seek` accepts whence 0 only.
+`/dev/ser0` is exclusive: a second `open` while its open file exists is
+`EBUSY`. Printer `write` waits for not-busy and does not time out. Descriptors
+that share the open file through `spawn` or `dup2` share the device.
 
 Reads and writes on character devices (console, serial, pipes):
 
@@ -440,8 +474,13 @@ Reads and writes on character devices (console, serial, pipes):
 - `write` blocks until every byte is queued. Queued is not sent: serial output
   drains from a ring under interrupts.
 - The console has no line discipline. It never echoes, and backspace, ENTER
-  and arrows arrive as bytes. Programs echo and edit lines themselves, as the
-  shell does.
+  and arrows arrive as bytes. Programs echo and edit lines themselves. The
+  shell uses backspace byte `08h`, TAB completion, UP and DOWN for a 4-line
+  by 128-byte history ring in kernel RAM (`CON_HIST` at `BF00h`, owner
+  `FEh`, `ioctl` requests `5` get and `6` put), `>` redirection through the
+  spawn fd map, and prints `exit N` only when `N` is not 0. LEFT and RIGHT
+  arrive as `ESC [ D` and `ESC [ C`. History is not stored in the shell's
+  bss.
 
 ### Non-blocking I/O
 
@@ -493,11 +532,13 @@ non-blocking until `EAGAIN`.
 
 ### ioctl requests
 
-Milestone 5 implements `ioctl` only on console descriptors 0-2. The request
-is the low byte in `HL`: `01h` sets the foreground task (`IX` = task id,
-`0` none) and returns the previous id in `HL`; `02h` sets the console mode
-(`IX` = mode bits, only bit 0 raw is defined) and returns the previous mode.
-Any other request is `EINVAL`.
+On console descriptors 0-2 the request is the low byte in `HL`: `01h` sets
+the foreground task (`IX` = task id, `0` none) and returns the previous id in
+`HL`; `02h` sets the console mode (`IX` = mode bits, only bit 0 raw is
+defined) and returns the previous mode; `05h` (`CON_GETHIST`) reads one history
+line (`IX` points to a slot byte then a 128-byte buffer); `06h` (`CON_PUTHIST`)
+pushes a null-terminated line into the ring. Any other low-byte request on a
+console is `EINVAL`.
 
 The table below is the full target. `ioctl` takes the request in `HL`. `IX`
 is a value or a pointer, as the table says. The high byte of the request is
@@ -786,7 +827,7 @@ fields, so the two always agree.
 
 ### Consistency rules
 
-`fsck` and `c5fs check` verify, reporting every violation:
+Host `c5fs check` verifies, reporting every violation:
 
 - The current superblock is valid and its layout fields match the block and
   inode counts.
@@ -824,8 +865,9 @@ only leaks blocks or inodes, never shares a block between two files:
 The superblock's clean flag is cleared (and the generation incremented) before
 the first write after mount, and set again after `sync` once the volume has
 been idle. Mounting a dirty volume rebuilds the bitmap from the inode table,
-which on a floppy means reading about 20 blocks. `fsck` does the full check
-(duplicate names, orphan inodes) on demand.
+which on a floppy means reading about 20 blocks. On-machine `fsck` is out of
+scope; `c5fs check` does the full check (duplicate names, orphan inodes) on
+demand.
 
 The host tools never leave a volume half-written: they change an in-memory
 copy and replace the image file in one rename, so a failed command leaves the
@@ -834,17 +876,18 @@ image byte-identical.
 ### File tree
 
 The boot volume is `/`. Other volumes appear under `/mnt` by device name
-(`/mnt/fd1`, `/mnt/hd0p1`) and are mounted on first access. `/dev` is
-provided by the kernel, not stored on disk.
+(`/mnt/fd1`-`/mnt/fd3` for floppy drives 1-3, `/mnt/hd0p1` and siblings for
+hard-disk partitions) and are mounted on first access. `/dev` is provided by
+the kernel, not stored on disk.
 
 ```text
 /bin        commands
-/etc        startup script (rc), settings
-/sys        kernel, fonts, keyboard maps
-/tmp        scratch, emptied at boot
+/etc        startup script (rc); the product image ships an empty /etc/rc
+/sys        kernel, ser, fonts, keyboard maps
+/tmp        scratch on the boot volume, created and emptied at boot
 /home       user files
-/dev        con0 con1 tty prn ser0 fd0-fd3 hd0 null
-/mnt        other volumes
+/dev        con con0 con1 tty null fd0-fd3 prn ser0 hd0
+/mnt        fd1-fd3, hd0 partitions, ...
 ```
 
 ### Time
@@ -867,17 +910,28 @@ for a second copy of `VolumeChecker`. `c5fs check` remains the oracle.
 
 ## 8. Boot sequence
 
+After mount, task 0 spawns `/etc/rc` before the first shell. A missing file or
+a file that is not a valid C5X is skipped without error. When `rc` finishes,
+the kernel creates `/tmp` if needed, removes every entry under it, and only then
+starts shells for consoles that want one. `/tmp` is ordinary disk space, not a
+RAM disk.
+
 ```mermaid
 sequenceDiagram
     participant ROM
     participant Boot as Boot sector
     participant Kernel
+    participant RC as /etc/rc
+    participant Shell as /bin/sh
     ROM->>Boot: read track 0 sector 1 to 4300h, jump
     Boot->>Boot: copy self to FF00h
     Boot->>Kernel: read superblocks A and B, take the valid one with the higher sequence, read the first kernel block to 4200h, jump
     Kernel->>Kernel: install 4000h, 4012h, 4049h jumps, IM 1, enable timer IRQ and FDC NMI
     Kernel->>Kernel: probe expansions, init arena, consoles, mount /
-    Kernel->>Kernel: spawn /etc/rc, then a shell on console 0
+    Kernel->>RC: spawn /etc/rc
+    RC-->>Kernel: exit or skipped
+    Kernel->>Kernel: mkdir /tmp, empty /tmp
+    Kernel->>Shell: spawn shell on console 0 when wanted
 ```
 
 ## 9. Expansions
@@ -1044,8 +1098,9 @@ starts on `127.0.0.1`.
 - Programs: C with SDCC (`__sdcccall(1)`), plus assembly where size matters.
   The SDK provides the startup code, system call wrappers and a small libc.
 - Host tools in this repo: `mkreloc` (bitmap from two links), `c5fs` (format,
-  copy files in and out, install the kernel). They write raw 184,320 or
-  368,640 byte images, which heh8080 mounts directly.
+  copy files in and out, install the kernel, `import` from TRSDOS/LDOS JV3 or
+  DMK disks, `check` for consistency). They write raw 184,320 or 368,640 byte
+  images, which heh8080 mounts directly.
 - Tests boot images in heh8080's headless CP-500 machine, type keys and check
   the screen. The copyrighted ROM cannot go in CI, so the repo includes a stub
   ROM that implements only the contract in section 2 (boot sector load,
@@ -1145,7 +1200,7 @@ Milestone 8 is the current tree.
    video row 3 and leaves the cursor on video row 4, column 0. Typed bytes
    are echoed on that input row. The kernel does not contain a shell. A disk
    with no `/bin/sh` halts after the banner and does not echo.
-4. Writable C5FS, `fsck`, core commands (`ls cp mv rm mkdir cat more date`),
+4. Writable C5FS, host `c5fs check`, core commands (`ls cp mv rm mkdir cat more date`),
    a full-screen editor.
 5. Preemptive scheduling (eight tasks, quantum 2 ticks), `spawn`, `wait`,
    `yield`, `kill`, pipes, two virtual consoles (CLEAR plus a digit), cooked

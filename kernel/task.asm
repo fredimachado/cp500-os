@@ -316,9 +316,13 @@ spawn_zero:
 sys_exit:
 ; E = exit code. Runs on the exiting task's stack and never returns.
 task_exit:
+                ld a, (RC_BOOT)
+                or a
+                jr nz, exit_body
                 ld a, (CUR)
                 dec a
                 jr z, exit_halt
+exit_body:
                 push de
                 ld hl, TASK + TASK_FD
                 ld b, FD_SLOTS
@@ -484,6 +488,8 @@ sys_yield:
                 ld h, a
                 ld l, a
                 jp syscall_ok
+
+                kvar RC_BOOT, 1
 
                 kvar spawn_tid, 1
                 kvar spawn_fd, 2

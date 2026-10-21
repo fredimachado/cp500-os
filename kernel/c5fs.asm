@@ -637,6 +637,36 @@ fs_ext_read:
                 or a
                 ret
 
+; DE = path, HL = destination, B = pages it may fill. Carry when the file is
+; missing, empty or too big.
+load_file:
+                push hl
+                push bc
+                call c5fs_walk
+                pop bc
+                pop de
+                ret c
+                ld a, (INO_BUF + INO_SIZE + 2)
+                or a
+                scf
+                ret nz
+                ld hl, (INO_BUF + INO_SIZE)
+                ld a, h
+                cp b
+                ccf
+                ret c
+                or l
+                scf
+                ret z
+                push hl
+                pop ix
+                ld hl, 0
+                ld (fs_acc), hl
+                ld (fs_acc + 2), hl
+                ex de, hl
+                ld de, fs_acc
+                jr c5fs_read
+
 ; HL = destination, IX = length, DE = pointer to the 4-byte offset.
 c5fs_read:
                 ld (fs_dst), hl
@@ -1271,32 +1301,3 @@ load_dev:
                 call nc, DEV_INIT
                 ret
 dev_path:       db "/sys/dev", 0
-; DE = path, HL = destination, B = pages it may fill. Carry when the file is
-; missing, empty or too big.
-load_file:
-                push hl
-                push bc
-                call c5fs_walk
-                pop bc
-                pop de
-                ret c
-                ld a, (INO_BUF + INO_SIZE + 2)
-                or a
-                scf
-                ret nz
-                ld hl, (INO_BUF + INO_SIZE)
-                ld a, h
-                cp b
-                ccf
-                ret c
-                or l
-                scf
-                ret z
-                push hl
-                pop ix
-                ld hl, 0
-                ld (fs_acc), hl
-                ld (fs_acc + 2), hl
-                ex de, hl
-                ld de, fs_acc
-                jp c5fs_read
