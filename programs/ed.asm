@@ -26,6 +26,19 @@
                 rst 08h
                 jp c, fail
                 ld (len), hl
+; A longer file would be cut to 512 bytes by :w, so it is refused.
+                ld c, SYS_READ
+                ld a, (fd)
+                ld e, a
+                ld d, 0
+                ld hl, ch
+                ld ix, 1
+                rst 08h
+                jp c, fail
+                ld a, h
+                or l
+                ld a, ENOMEM
+                jp nz, fail
                 ld hl, 0
                 ld (cur), hl
                 call draw
@@ -99,6 +112,9 @@ ed_cmd:
                 cp 'w'
                 jr z, ed_save
                 cp 'q'
+                jp nz, ed_key
+                call getc
+                cp 0Dh
                 jp z, exit0
                 jp ed_key
 ed_save:
