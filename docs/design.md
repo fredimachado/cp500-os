@@ -211,8 +211,10 @@ repeat delay.
   missing or zero count moves one cell), `ESC [ H` and `ESC [ f` (1-based
   position; a missing row or column is 1), `ESC [ J` and `ESC [ K` (0 from
   the cursor, 1 through the cursor, 2 the whole screen or line; a missing
-  count is 0). An unknown sequence is discarded. The cursor is the `BFh`
-  block, saved and restored around blinks. Console state is `4054h`-`4061h`.
+  count is 0). An unknown sequence is discarded. The cursor is the CP-500's
+  `B0h` bar, toggled every 7 ticks and saved and restored around blinks. A
+  console shows no cursor until a program prints to it, so it first appears
+  at the shell's `sh>`. Console state is `4054h`-`4061h`.
 - Text is ISO-8859-1. The console maps bytes through `LAT1_GLYPH` in
   `/sys/keymap`, then writes the resulting video code.
 - Raw mode (console `ioctl` request `02h`, bit 0) disables dead-key composition

@@ -99,7 +99,7 @@ public sealed class SyscallTests
     private static string[] Visible(string stdout) =>
     [
         .. stdout.Split('\n')
-            .Select(line => line.Replace("\u2588", "").TrimEnd(' ', '\r'))
+            .Select(line => line.Replace("\U0001FB2D", "").TrimEnd(' ', '\r'))
             .Where(line => line.Length > 0 && !IsDump(line)),
     ];
 

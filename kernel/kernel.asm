@@ -34,11 +34,11 @@ km_sides:
                 call nc, mt_apply
                 push af
                 call nc, load_sys
+                ld hl, banner
+                call console_puts
                 xor a
                 ld (CUR_PHASE), a
                 ld (BLINK_DIV), a
-                ld hl, banner
-                call console_puts
                 pop af
                 jr c, km_mount
                 xor a

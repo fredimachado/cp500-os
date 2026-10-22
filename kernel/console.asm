@@ -1,4 +1,4 @@
-; Software cursor on a 64 by 16 plane. The block glyph is BFh. Each console has
+; Software cursor on a 64 by 16 plane, the CP-500's B0h bar. Each console has
 ; a plane and 14 state bytes; CUR_ROW..BLINK_DIV hold the bound console's.
 
 console_puts:
@@ -48,6 +48,8 @@ con_ground:
                 ld h, LAT1_GLYPH >> 8
                 ld c, (hl)
 con_glyph:
+                ld hl, BLINK_DIV
+                set 7, (hl)
                 call con_restore
                 call con_addr
                 ld (hl), c
@@ -167,8 +169,7 @@ con_csi_other:
                 cp 7Fh
                 jr c, con_final
 con_csi_endbad:
-                ld a, 1
-                ld (ANSI_BAD), a
+                call con_csi_mark
                 jr con_final_skip
 con_csi_mark:
                 ld a, 1
@@ -220,11 +221,7 @@ con_acc_ok:
 con_store:
                 ld a, (ANSI_N)
                 cp 2
-                jr c, con_store_ok
-                ld a, 1
-                ld (ANSI_BAD), a
-                ret
-con_store_ok:
+                jr nc, con_csi_mark
                 ld hl, ANSI_P0
                 ld e, a
                 ld d, 0
@@ -354,8 +351,6 @@ con_ed:
                 push af
                 call con_restore
                 pop af
-                ld b, a
-                ld a, b
                 or a
                 jr z, con_ed_forward
                 dec a
@@ -648,12 +643,16 @@ console_blink:
                 ld a, (CON_BOUND)
                 cp d
                 call nz, con_bind
+; BLINK_DIV bit 7 enables the caret. A console's first printed glyph sets it,
+; so no caret shows before its shell prints sh>. It toggles every 7 ticks.
                 ld hl, BLINK_DIV
+                bit 7, (hl)
+                ret z
                 inc (hl)
                 ld a, (hl)
-                cp 15
+                cp 80h + 7
                 ret c
-                ld (hl), 0
+                ld (hl), 80h
                 ld a, (CUR_PHASE)
                 xor 1
                 ld (CUR_PHASE), a

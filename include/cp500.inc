@@ -88,7 +88,7 @@ BLINK_DIV           equ 4061h
 ANSI_GROUND         equ 0
 ANSI_ESC            equ 1
 ANSI_CSI            equ 2
-CURSOR_BLOCK        equ 0BFh
+CURSOR_BLOCK        equ 0B0h
 K_UP                equ 1               ; keyboard table only, never a ring byte
 K_DOWN              equ 2
 K_LEFT              equ 3

@@ -169,7 +169,7 @@ public sealed class Milestone6Tests
     private static string[] Visible(string stdout) =>
     [
         .. stdout.Split('\n')
-            .Select(line => line.Replace("\u2588", "").TrimEnd(' ', '\r'))
+            .Select(line => line.Replace("\U0001FB2D", "").TrimEnd(' ', '\r'))
             .Where(line => line.Length > 0 && !IsDump(line)),
     ];
 
@@ -190,7 +190,7 @@ internal static class SerialBoard
             "--run", "2s",
             "--dump-screen").GetAwaiter().GetResult();
         string[] lines = probe.Stdout.Split('\n')
-            .Select(line => line.Replace("\u2588", "").TrimEnd(' ', '\r'))
+            .Select(line => line.Replace("\U0001FB2D", "").TrimEnd(' ', '\r'))
             .Where(line => line.StartsWith("exit ", StringComparison.Ordinal))
             .ToArray();
         if (lines.Any(line => line == "exit 18"))

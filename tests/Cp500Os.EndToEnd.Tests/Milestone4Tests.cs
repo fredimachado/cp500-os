@@ -183,7 +183,7 @@ public sealed class Milestone4Tests : IDisposable
     private static string[] Visible(string stdout) =>
     [
         .. stdout.Split('\n')
-            .Select(line => line.Replace("\u2588", "").TrimEnd(' ', '\r'))
+            .Select(line => line.Replace("\U0001FB2D", "").TrimEnd(' ', '\r'))
             .Where(line => line.Length > 0 && !(line.Length > 5 && line[4] == ':' &&
                 int.TryParse(line.AsSpan(0, 4), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out _))),
     ];

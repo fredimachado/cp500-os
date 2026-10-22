@@ -38,7 +38,33 @@ public sealed class ShellTests
     {
         RunResult run = await TypeAsync("nosuch{ENTER}", "ENOENT");
         string[] rows = [.. run.Stdout.Split('\n').Select(line => line.TrimEnd(' ', '\r')).Where(line => line.Length > 0)];
-        Assert.Matches("^sh>█?$", rows[^1]);
+        Assert.Equal("sh>", rows[^1].Replace("\U0001FB2D", ""));
+    }
+
+    [Fact]
+    public async Task NoCaretWhileTheShellLoads()
+    {
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", Product(),
+            "--until-screen", "cp500-os/", "--timeout", "10s",
+            "--run", "600ms",
+            "--dump-screen");
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        Assert.DoesNotContain("sh>", run.Stdout);
+        Assert.DoesNotContain("\U0001FB2D", run.Stdout);
+    }
+
+    [Fact]
+    public async Task CaretIsTheCp500BarAfterThePrompt()
+    {
+        // B0h, on from the 7th tick after sh> to the 14th.
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", Product(),
+            "--until-screen", "sh>", "--timeout", "20s",
+            "--run", "300ms",
+            "--dump-screen");
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        Assert.Contains(run.Stdout.Split('\n'), line => line.TrimEnd(' ', '\r') == "sh>\U0001FB2D");
     }
 
     [Fact]
@@ -146,7 +172,7 @@ public sealed class ShellTests
     private static string[] Visible(string stdout) =>
     [
         .. stdout.Split('\n')
-            .Select(line => line.Replace("\u2588", "").TrimEnd(' ', '\r'))
+            .Select(line => line.Replace("\U0001FB2D", "").TrimEnd(' ', '\r'))
             .Where(line => line.Length > 0 && !IsDump(line)),
     ];
 
