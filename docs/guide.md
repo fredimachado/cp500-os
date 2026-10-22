@@ -63,18 +63,18 @@ permissions, GUI or Unicode.
 
 | Area | Features |
 |------|----------|
-| Scheduling | 8 task slots, round-robin preemption on a 30 Hz timer, 2-tick (66 ms) quantum, `spawn`/`wait`/`kill`/`yield`/`sleep`, zombies reaped by the parent |
+| Scheduling | 8 task slots, round-robin preemption on a 30 Hz timer, 2-tick (66 ms) quantum, `spawn`/`wait`/`kill`/`yield`/`sleep`, `taskinfo` for `ps`, zombies reaped by the parent |
 | Memory | 256-byte page arena with owner tracking. All pages a task owned are freed when it exits. `alloc`/`free`/`meminfo` for programs |
 | Files | C5FS: extent-based, 30-byte case-insensitive Latin-1 names, 24-bit sizes, created/modified times, read-only and hidden flags, two superblock copies with CRC, ordered writes for crash safety |
 | I/O | 8 fds per task, 16 open files system-wide, `dup2`, `pipe` (4 pipes of 255 bytes), `poll` on up to 8 fds, non-blocking mode, `ioctl` |
 | Consoles | 2 virtual consoles (CLEAR+digit to switch), ANSI/VT100 subset, software blinking cursor, raw mode, ISO-8859-1 output |
 | Keyboard | Debounced 8x8 matrix scan, auto-repeat, arrow keys as ANSI sequences, acute dead key for á é í ó ú ç and their capitals |
-| Shell | Line editing, 4-line history per console, TAB completion, `a ! b` pipes, `> file` redirection, `? cmd` background jobs, BREAK kills the foreground job |
+| Shell | Line editing, 4-line history per console, TAB completion, `a ! b` pipes, `> file` redirection, `? cmd` background jobs (`ok <id>`), `ps` and `kill <id>`, BREAK kills the foreground job |
 | Storage | 180/360 KiB floppies in drives 0-3 (`/mnt/fd1`-`fd3`), raw sector devices `/dev/fd0`-`fd3`, FreHD virtual hard disk with up to 4 partitions (`/mnt/hd0p1`-`p4`) |
 | Clock | Software clock from the tick. Its base comes from the FreHD battery-backed clock when present, otherwise from the volume's last-written time. `date` and `timesync` set it |
 | Serial | Interrupt-driven RS-232 (`/dev/ser0`), 255-byte rings, RTS/CTS, DCD hangup, error counters, Hayes "Wi-Fi modem" use through `term` and `irc` |
 | Network | WIZnet W5100 TCP offload: `socket`/`connect`/`listen`/`accept`/`send`/`recv`/`close`/`resolve`, with `telnet`, `get` (HTTP/1.0) and `timesync` (RFC 868) |
-| Apps | `ls cat cp mv rm mkdir more date ed term telnet get timesync irc` |
+| Apps | `ls cat cp mv rm mkdir more date ed term telnet get timesync irc kill ps` |
 | Host | `c5fs` (format, put/get, ls, mkdir, rm, sys, info, check, import TRSDOS/LDOS JV3/DMK disks), `mkreloc` (builds C5X executables) |
 
 ---
@@ -105,8 +105,8 @@ flowchart TB
     subgraph Loaded["Loaded from /sys at mount"]
         wr["/sys/wr F800h: writer (mkdir, remove, rename, write, sync, time)"]
         km["/sys/keymap F000h: key tables, Latin-1 glyphs"]
-        dev["/sys/dev E100h: volumes/mounts, FreHD, W5100 sockets, poll, hooks"]
-        ser["/sys/ser D400h: serial driver, /dev/null,con,tty,fd,prn, sleep/alloc/free/meminfo/dup2/seek, rc boot"]
+        dev["/sys/dev E000h: volumes/mounts, FreHD, W5100 sockets, poll, taskinfo, kill guard, hooks"]
+        ser["/sys/ser D300h: serial driver, /dev/null,con,tty,fd,prn, sleep/alloc/free/meminfo/dup2/seek, rc boot"]
     end
     User -- "RST 08h" --> sys
     sys --> task & pipe & c5fs & con
@@ -122,8 +122,8 @@ flowchart TB
 |------|--------------|------|--------------|
 | `/sys/wr` | `F800h` (8 pages) | ~2 KiB | Everything that changes a volume: `mkdir`, `remove`, `rename`, open-for-write/create/truncate/append, `write`, `sync`, plus `time`/`settime`. Without it the OS still boots, read-only, and those calls return `EIO` |
 | `/sys/keymap` | `F000h` (1 page) | 220 B | Unshifted and shifted key tables, acute-accent composition pairs, and the Latin-1 to video-glyph table |
-| `/sys/dev` | `E100h` (15 pages) | ~3.6 KiB | The mount table and volume switching, `/mnt/...` routing, the FreHD hard-disk driver and clock, the W5100 socket calls `50h-57h`, `poll`, and the hook handlers. Then loads `/sys/ser` |
-| `/sys/ser` | `D400h` (13 pages) | ~3.3 KiB | The RS-232 driver, the extra `/dev` names, the six syscall bodies `sleep`, `uptime`, `alloc`, `free`, `meminfo`, `dup2`, `seek`, history ioctls, and the boot-time `/etc/rc` and `/tmp` logic |
+| `/sys/dev` | `E000h` (16 pages) | ~3.6 KiB | The mount table and volume switching, `/mnt/...` routing, the FreHD hard-disk driver and clock, the W5100 socket calls `50h-57h`, `taskinfo` `58h`, `poll`, the task-name table and kill guard, and the hook handlers. Then loads `/sys/ser` |
+| `/sys/ser` | `D300h` (13 pages) | ~3.3 KiB | The RS-232 driver, the extra `/dev` names, the six syscall bodies `sleep`, `uptime`, `alloc`, `free`, `meminfo`, `dup2`, `seek`, history ioctls, and the boot-time `/etc/rc` and `/tmp` logic |
 
 ### How the loadable modules hook in
 
@@ -167,10 +167,10 @@ the keyboard has no usable map.
 4200-60FF  resident kernel (kernel.bin, first block = loader + init)
 6100-61FF  BLK_BUF, the kernel's one sector buffer
 6200-BEFF  arena: programs, stacks, pipe pages, serial rings      (pages 62h-BEh)
-BF00-C3FF  shell history rings, owner FEh                          (CON_HIST)
-C400-D3FF  arena                                                   (pages C4h-D3h)
-D400-E0FF  /sys/ser                                                (13 pages)
-E100-EFFF  /sys/dev, with the serial state record at its top       (15 pages)
+BF00-C3FF  shell history rings (CON_HIST, owner FEh), task names at C308h (TASK_NAMES)
+C400-D2FF  arena                                                   (pages C4h-D2h)
+D300-DFFF  /sys/ser                                                (13 pages)
+E000-EFFF  /sys/dev, with the serial state record at its top       (16 pages)
 F000-F0FF  /sys/keymap
 F100-F4FF  console 1 shadow screen (1 KiB)
 F500-F7FF  KPAGE: page owners, console save blocks, kernel vars,
@@ -206,8 +206,8 @@ open serial port takes two pages for its rings. When a task exits, every page
 it owns is released, so a crashing program cannot leak memory. Pointers
 cannot be moved without an MMU, so there is no compaction.
 
-With all modules loaded, about 109 pages (~27 KiB) are free for programs,
-split into a 93-page run at `6200h` and a 16-page run at `C400h`. The largest
+With all modules loaded, about 108 pages (~27 KiB) are free for programs,
+split into a 93-page run at `6200h` and a 15-page run at `C400h`. The largest
 single program is therefore about 23 KiB including its stack.
 
 ---
@@ -306,7 +306,10 @@ impossible without an MMU. `spawn(path, argv, fdmap)` works like
 `wait(id)` returns `(id << 8) | exit_code`. Id `FFh` means any child, and
 `FEh` reaps one zombie without blocking (the shell does this at every prompt).
 `kill` marks the task and it exits with code `FFh` before it runs user code
-again. Writing to a pipe with no reader also kills the writer with `FFh`.
+again. The console shells and `/etc/rc` are children of init, so `kill` returns
+`EBUSY` for them. Writing to a pipe with no reader also kills the writer with
+`FFh`. `taskinfo` (`58h`) returns one slot's state, parent, wait channel, pages,
+console and name, and `ps` is built on it.
 
 ### C5X executables
 
@@ -336,11 +339,12 @@ carry set on failure. `IX`, `IY` and the alternate registers are preserved.
 
 | Range | Calls | Where implemented |
 |-------|-------|-------------------|
-| `00h-07h` process | `exit spawn wait getpid yield sleep kill uptime` | kernel. `sleep`, `uptime` in `/sys/ser` |
+| `00h-07h` process | `exit spawn wait getpid yield sleep kill uptime` | kernel. `sleep`, `uptime` in `/sys/ser`. `kill` is checked by the `/sys/dev` gate |
 | `10h-12h` memory | `alloc free meminfo` | `/sys/ser` |
 | `20h-31h` files | `open close read write seek stat fstat readdir mkdir remove rename chdir getcwd dup2 pipe ioctl sync poll` | kernel for read paths, `/sys/wr` for writes, `/sys/ser` for `seek`/`dup2`, `/sys/dev` for `poll` and devices |
 | `40h-41h` time | `time settime` | `/sys/wr` |
 | `50h-57h` sockets | `socket connect listen accept send recv sockclose resolve` | `/sys/dev` (`net.asm`) |
+| `58h` task info | `taskinfo` | `/sys/dev` |
 
 Open flags: `O_READ 01h`, `O_WRITE 02h`, `O_CREATE 04h`, `O_TRUNC 08h`,
 `O_APPEND 10h`, `O_EXCL 20h`, non-blocking `40h`.
@@ -434,7 +438,7 @@ product image is a 360 KiB disk labelled `cp500-os`.
 ### File tree on the product image
 
 ```text
-/bin    sh ls cat cp mv rm mkdir more date ed term telnet get timesync irc hi
+/bin    sh ls cat cp mv rm mkdir more date ed term telnet get timesync irc hi kill ps
 /etc    rc (empty)
 /sys    kernel  wr  keymap  dev  ser
 /lib    test fixtures (spin.c5x, rawkey.c5x, polltest.c5x, ...)
@@ -582,13 +586,16 @@ The CP-500 keyboard has no `|`, so the pipe symbol is `!`:
 sh>cat /home/lines ! more          pipe: cat's stdout into more's stdin
 sh>ls /bin > /tmp/list             redirect stdout to a file (create/truncate)
 sh>> /tmp/empty                    create or truncate a file
-sh>? /lib/spin.c5x                 run in the background; prints "ok"
+sh>? /lib/spin.c5x                 run in the background; prints "ok 3"
+sh>ps                              list every task
+sh>kill 3                          end task 3
 ```
 
 - A pipe joins exactly two commands.
 - `> path` must be the last thing on the line and must follow a space.
 - `? cmd` starts the job and returns at once. Finished background jobs are
   reaped silently at the next prompt.
+- The `ok <id>` line gives the task id. `ps` lists it and `kill` takes it.
 - When a command exits with a non-zero code the shell prints `exit N`. Spawn
   errors print the error name (`ENOENT`, `ENOEXEC`, ...).
 
@@ -611,6 +618,8 @@ command prints the error name and exits with its code.
 | `mv` | `mv old new` | Renames or moves within one volume |
 | `rm` | `rm path` | Removes a file or an empty directory |
 | `mkdir` | `mkdir path` | Creates a directory |
+| `kill` | `kill id` | Ends task `id` with exit code `FFh`. The console shells and `/etc/rc` are children of init, so they return `EBUSY` |
+| `ps` | `ps` | Lists every task: `ID`, `ST` (`R` ready, `B` blocked, `D` dying, `Z` zombie), `WAIT` (`key`, `tick`, `child`, `ser`, `sleep`, `pipeN`), `PPID`, `MEM` in bytes, `CON` (1 or 2) and `NAME` |
 | `date` | `date` / `date yyyy-MM-dd HH:mm:ss` | Prints or sets the clock |
 | `ed` | `ed file` | Full-screen overwrite editor. Arrows move, printable keys overwrite, `:w` ENTER saves and exits, `:q` ENTER quits |
 | `term` | `term` | Serial terminal for a Hayes modem on `/dev/ser0`: sends `ATE0V1`, waits for `OK` (prints `no modem` after 3 s and goes local), then passes keys and data through. Type `ATDT host:port` to dial |
@@ -793,9 +802,7 @@ Most of design.md matches the source. These spots predate later milestones:
 
 | design.md says | The code does |
 |----------------|---------------|
-| §6: socket range `50h-5Fh` is "reserved", and the kernel implements every call except it | `50h-57h` are implemented in `/sys/dev` (`net.asm`) |
 | §6 "Implemented calls": `write` of a file is `EROFS`, and `mkdir`/`remove`/`rename` refuse with `EROFS` | That was milestone 3. With `/sys/wr` loaded they write. `EROFS` is now for read-only inodes and a missing writer |
-| §6 "Implemented calls": the six syscall bodies are in `/sys/ser`; §3 memory map: `F000h` upward hold the keymap, the shadow, KPAGE and `/sys/wr`, and programs use arena pages up to `EFh` | `/sys/dev` (`E100h-EFFFh`) and `/sys/ser` (`D400h-E0FFh`) also sit in the arena range, and history takes `BF00h-C3FFh`. Programs really get pages `62h-BEh` and `C4h-D3h` |
 | §5 Console: inactive consoles keep a shadow "in the arena" | The shadow for console 1 is fixed at `F100h` |
 | §5 Floppy: disk changes are detected after 2 s idle and give `ECHANGED` | The superblock generation field exists, but no kernel code returns `ECHANGED` |
 | §6 table: `FIONBIO`, `FIONREAD`, `CON_GETSIZE`, ... | Called "the full target". Consoles implement `01h`, `02h`, `05h`, `06h`, and serial `0201h-0206h` |
