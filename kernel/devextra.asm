@@ -528,7 +528,6 @@ ci_gethist:
                 ld (de), a
                 jr ci_hist_ok
 ci_get_copy:
-                ex de, hl
                 ld bc, HIST_LINE - 1
                 ldir
 ci_hist_ok:
@@ -555,13 +554,13 @@ ci_hist_line:
                 ld a, (hl)
                 ld c, a
                 inc hl
-                ld a, (hl)
-                cp b
+                ld a, b
+                cp (hl)
                 jr nc, ci_slot_bad
                 dec hl
                 ld a, c
                 dec a
-                add a, b
+                sub b
                 and HIST_LINES - 1
                 call ci_line_at
                 or a
@@ -612,6 +611,7 @@ ci_line_at:
                 add hl, de
                 ld de, HIST_LINE
                 ld a, b
+                or a
 ci_lat:
                 ret z
                 add hl, de
