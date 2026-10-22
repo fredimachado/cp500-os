@@ -39,8 +39,8 @@ ser_body_end:
                 assert $ == FD_DRV
 fd_drv:         ds 5, 0
                 include "devextra.asm"
-                assert $ <= 0DF40h
-                ds 0DF40h - $, 0
+                assert $ <= SER_SC_BLOCK
+                ds SER_SC_BLOCK - $, 0
 
 ; Bit 15 of T_ARG is armed. Spawn already zeroes that word. The other 15 bits
 ; are the start tick. A span of 8000h or more does not fit beside the flag.

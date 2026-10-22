@@ -645,7 +645,7 @@ banner_rest:
                 db "https://github.com/fredimachado/cp500-os", 0Dh
                 db 0
 
-                assert $ < DEV_BASE + 3840
+                assert $ < DEV_BASE + DEV_PAGES * 256
                 assert $ <= SER_REC
                 org SER_REC
                 ds SER_SIZE, 0

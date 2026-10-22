@@ -411,6 +411,19 @@ SYS_SEND            equ 54h
 SYS_RECV            equ 55h
 SYS_SOCKCLOSE       equ 56h
 SYS_RESOLVE         equ 57h
+SYS_TASKINFO        equ 58h             ; one task record per call, layout TI_*
+SYS_DENIED          equ 0FFh            ; internal pseudo-syscall for the kill guard; never a user call number
+
+; Task record returned by SYS_TASKINFO. TI_SIZE bytes per slot.
+TI_STATE            equ 0               ; TS_*
+TI_PARENT           equ 1               ; parent slot, 0FFh for an orphan
+TI_CHAN             equ 2               ; wait channel (CH_*)
+TI_BASE             equ 3               ; base page
+TI_PAGES            equ 4               ; page count
+TI_CON              equ 5               ; console 0 or 1, 0FFh none
+; 6-7 reserved
+TI_NAME             equ 8               ; TASK_NAME_LEN bytes, NUL-terminated
+TI_SIZE             equ 16
 
 SOCK_NONBLOCK       equ 1
 
@@ -429,11 +442,17 @@ HIST_LINES          equ 4
 HIST_LINE           equ 128
 HIST_META           equ 4               ; head, count, pad, pad per console
 HIST_CON_SIZE       equ HIST_META + HIST_LINES * HIST_LINE
-HIST_PAGE           equ 0BFh              ; below SER/DEV (D4h+); not the E8h arena/SER alias
+HIST_PAGE           equ 0BFh              ; below SER/DEV (D3h+); not the E8h arena/SER alias
 OWNER_HIST          equ 0FEh              ; keeps CON_HIST pages out of the program arena
 HIST_PAGES          equ 5
 CON_HIST            equ HIST_PAGE << 8
                 assert CON_HIST + NCON * HIST_CON_SIZE <= (HIST_PAGE + HIST_PAGES) << 8
+; Task names for SYS_TASKINFO: one slot per task in the spare history RAM above
+; the console lines. Boot does not clear them.
+TASK_NAMES          equ CON_HIST + NCON * HIST_CON_SIZE   ; C308h
+TASK_NAME_LEN       equ 8               ; 7 chars + NUL
+                assert TASK_NAMES + TASK_SLOTS * TASK_NAME_LEN <= (HIST_PAGE + HIST_PAGES) << 8
+                assert TI_NAME + TASK_NAME_LEN == TI_SIZE
 KEY_BREAK           equ 03h
 
 POLLIN              equ 01h
@@ -475,7 +494,7 @@ HOOK_SLOT           equ SYS_RST10
 ; Pages below the old base hold the six new calls and the extra devices.
 ; The 8 KiB kernel and the device image have no room for them.
 SER_PAGES           equ 13
-SER_BASE            equ 0D400h
+SER_BASE            equ 0D300h
 SEV_OPEN            equ SER_BASE
 SEV_READ            equ SER_BASE + 3
 SEV_WRITE           equ SER_BASE + 6
@@ -488,14 +507,14 @@ SEV_DISK            equ SER_BASE + 24
 SEV_MASK            equ SER_BASE + 27
 ; Fixed jumps in /sys/ser. The bodies sit above ser_body and below the
 ; syscall block, so editing a body does not move these addresses.
-EXT_OPEN            equ 0DAC0h
-EXT_GO              equ 0DAC3h
-BOOT_BODY           equ 0DAC6h
-SEEK_BODY           equ 0DAC9h
-FD_ROUTE            equ 0DACCh
-FD_DRV              equ 0DACFh
+EXT_OPEN            equ 0D9C0h
+EXT_GO              equ 0D9C3h
+BOOT_BODY           equ 0D9C6h
+SEEK_BODY           equ 0D9C9h
+FD_ROUTE            equ 0D9CCh
+FD_DRV              equ 0D9CFh
 
-DEV_PAGES           equ 15
+DEV_PAGES           equ 16
 DEV_BASE            equ (ARENA_LAST + 1 - DEV_PAGES) << 8
 DEV_INIT            equ DEV_BASE
 DEV_V_OK            equ DEV_BASE + 3
@@ -514,13 +533,15 @@ VB_ENT              equ DEV_BASE + 39
 DEV_BANNER          equ DEV_BASE + 42
 ; Fixed tails of /sys/ser. Each one jumps to the body. The bodies sit
 ; under this table, so editing a body does not move the address dev calls.
-SC_SLEEP            equ 0E0EDh
-SC_UPTIME           equ 0E0F0h
-SC_ALLOC            equ 0E0F3h
-SC_FREE             equ 0E0F6h
-SC_MEMINFO          equ 0E0F9h
-SC_DUP2             equ 0E0FCh
-SC_HIST             equ 0DE25h
+; ser.asm pads the bodies up to SER_SC_BLOCK; they must end below it.
+SER_SC_BLOCK        equ SER_BASE + 0B40h
+SC_SLEEP            equ 0DFEDh
+SC_UPTIME           equ 0DFF0h
+SC_ALLOC            equ 0DFF3h
+SC_FREE             equ 0DFF6h
+SC_MEMINFO          equ 0DFF9h
+SC_DUP2             equ 0DFFCh
+SC_HIST             equ 0DD25h
 SER_SIZE            equ 31
 SER_REC             equ DEV_BASE + DEV_PAGES * 256 - SER_SIZE
 SER                 equ SER_REC
