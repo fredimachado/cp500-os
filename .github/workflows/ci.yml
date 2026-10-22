@@ -3,7 +3,25 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.cursor/**'
+      - '.audit/**'
+      - 'roms/**'
+      - '.gitignore'
+      - 'eng/run-emulator.ps1'
+      - 'eng/run-emulator.sh'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.cursor/**'
+      - '.audit/**'
+      - 'roms/**'
+      - '.gitignore'
+      - 'eng/run-emulator.ps1'
+      - 'eng/run-emulator.sh'
 
 jobs:
   test:

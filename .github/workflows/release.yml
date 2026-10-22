@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - uses: actions/cache@v4
+        with:
+          path: build/tools
+          key: tools-${{ runner.os }}-${{ hashFiles('eng/install-sjasmplus.ps1') }}
+
+      - name: Install sjasmplus
+        shell: pwsh
+        run: ./eng/install-sjasmplus.ps1
+
+      - name: Test
+        run: dotnet test --solution cp500-os.slnx -c Release
+
+      - name: Build disk image
+        run: dotnet build image/Cp500Os.Disk.proj -c Release
+
+      - name: Name release asset
+        id: asset
+        run: |
+          name="cp500-os-${GITHUB_REF_NAME}.dsk"
+          cp build/cp500-os.dsk "$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.asset.outputs.name }}
+          generate_release_notes: true
