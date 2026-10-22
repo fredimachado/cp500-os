@@ -229,26 +229,6 @@ fg_wait:
                 or a
                 ret
 
-silent_mkdir:   db "/bin/mkdir", 0
-silent_cp:      db "/bin/cp", 0
-silent_mv:      db "/bin/mv", 0
-silent_rm:      db "/bin/rm", 0
-silent_ls:      db "/bin/ls", 0
-silent_cat:     db "/bin/cat", 0
-
-cmd_prefix:
-                ld a, (de)
-                or a
-                ret z
-                cp (hl)
-                jr nz, cmd_pf_no
-                inc de
-                inc hl
-                jr cmd_prefix
-cmd_pf_no:
-                or a
-                ret
-
 fg_sync_clear:
                 xor a
                 ld (esc_state), a

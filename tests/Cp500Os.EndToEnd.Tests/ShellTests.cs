@@ -42,6 +42,14 @@ public sealed class ShellTests
         AssertOk(run);
     }
 
+    [Fact]
+    public void ShellStaysInThirteenArenaPages()
+    {
+        // Every child loads above the shell; one more page leaves irc too little room.
+        var shell = Cp500Os.C5x.C5xFile.Parse(RepoPaths.ReadZ80Output("sh.c5x"));
+        Assert.True(shell.Header.MemoryPages <= 13, $"/bin/sh needs {shell.Header.MemoryPages} pages");
+    }
+
     private static async Task<RunResult> TypeAsync(string typed, string until)
     {
         RunResult run = await HeadlessRunner.RunAsync(
