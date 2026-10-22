@@ -52,6 +52,27 @@ public sealed class ShellTests
     }
 
     [Fact]
+    public async Task TabCompletesTheOneBinMatch()
+    {
+        RunResult run = await TypeAsync("ca{TAB} /home/note{ENTER}", "hello");
+        Assert.Contains("sh>cat /home/note", Visible(run.Stdout));
+    }
+
+    [Fact]
+    public async Task TabCompletesAnAbsolutePath()
+    {
+        RunResult run = await TypeAsync("cat /home/n{TAB}{ENTER}", "hello");
+        Assert.Contains("sh>cat /home/note", Visible(run.Stdout));
+    }
+
+    [Fact]
+    public async Task TabAddsSlashAfterADirectory()
+    {
+        RunResult run = await TypeAsync("ls /h{TAB}{ENTER}", "irc-demo");
+        Assert.Contains("sh>ls /home/", Visible(run.Stdout));
+    }
+
+    [Fact]
     public async Task RedirectsDoNotLeakDescriptors()
     {
         string nine = string.Concat(Enumerable.Repeat("ls /tmp > /tmp/o{ENTER}", 9));

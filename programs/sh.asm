@@ -252,7 +252,8 @@ fg_sync_clear:
                 ld (cur_pos), a
                 ld (line), a
                 ld iy, line
-                jp replace_line
+                call redraw_line
+                ret
 
 show_err:
                 ld c, a
@@ -577,6 +578,8 @@ edit_tab:
                 add hl, bc
                 xor a
                 ld (hl), a
+                push hl
+                pop iy
                 ret
 
 hist_up:
@@ -619,6 +622,13 @@ hist_fetch:
                 ld hl, CON_GETHIST
                 ld ix, argv_blk
                 rst 08h
+                ld a, (argv_blk + 1)
+                or a
+                jr nz, hf_have
+                ld hl, hist_pos
+                dec (hl)
+                ret
+hf_have:
                 ld hl, argv_blk + 127
                 ld (hl), 0
                 ld hl, argv_blk + 1
@@ -632,15 +642,7 @@ hf_copy:
                 inc de
                 jr hf_copy
 hf_done:
-                call redraw_line
-                ld a, (argv_blk + 1)
-                or a
-                jr nz, hf_have
-                ld hl, hist_pos
-                dec (hl)
-                ret
-hf_have:
-                ret
+                jp replace_line
 hist_save:
                 ld hl, line
                 ld a, (hl)
@@ -682,6 +684,7 @@ hist_same:
                 inc de
                 inc hl
                 jr hist_same
+; A prompt on the next row, then the line. A program's output may not end its row.
 redraw_line:
                 ld hl, redraw_seq
                 ld ix, redraw_seq_end - redraw_seq
@@ -717,9 +720,12 @@ rl_seq:
                 ld b, 0
 rl_out:
                 ld a, (hl)
+                or a
+                jr z, rl_done
                 push hl
-; A prompt on the next row, then the line. A program's output may not end its row.
+                push bc
                 call write_byte
+                pop bc
                 pop hl
                 inc hl
                 inc b
@@ -729,15 +735,11 @@ rl_done:
                 ld (cur_pos), a
                 push hl
                 pop iy
-                or a
-                jr z, rl_done
                 ret
-                push bc
 rp_up:          db 1Bh, "[1A"
 rp_seq:         db 1Bh, "[99D", 1Bh, "[J", "sh>"
 rp_seq_end:
 redraw_seq:     db 0Dh, "sh>"
-                pop bc
 redraw_seq_end:
 
 ; HL = line, IX = map. Strips trailing " > path", opens outfile.
@@ -850,45 +852,28 @@ cw_atsp:
                 ld a, (hl)
                 or a
                 jp z, cw_noword
+; A bare word completes from /bin. A word with / completes after its last /.
 cw_word:
-                push hl
-                pop de
-                ld (cw_ptr), de
-                ld a, (de)
-                cp '/'
-                jr z, cw_abs
-                ld de, bin_dir
-                jr cw_open_fd
-cw_abs:
-                ex de, hl
                 ld (cw_ptr), hl
-                ld bc, hl
-                ld hl, line
-                ld de, path_buf
-cwd_cp:
-                ld a, h
-                cp b
-                jr nz, cwd_byte
-                ld a, l
-                cp c
-                jr z, cwd_end
-cwd_byte:
+                ld de, 0
                 ld a, (hl)
-                ld (de), a
+                cp '/'
+                jr nz, cw_dir_set
+                ex de, hl
+                ld h, d
+                ld l, e
+cw_slash:
+                ld a, (hl)
                 inc hl
-                inc de
-                jr cwd_cp
-cwd_end:
-                ld a, '/'
-                ld (de), a
-                inc de
-                xor a
-                ld (de), a
-                ld de, path_buf
-cw_open_fd:
-                ld c, SYS_OPEN
-                ld b, O_READ
-                rst 08h
+                or a
+                jr z, cw_dir_set
+                cp '/'
+                jr nz, cw_slash
+                ld (cw_ptr), hl
+                jr cw_slash
+cw_dir_set:
+                ld (cw_dir), de
+                call cw_opendir
                 jr nc, cw_open_ok
                 pop iy
                 ret
@@ -943,7 +928,7 @@ cw_list:
                 or a
                 jr z, cw_close
                 call cw_relist
-                call redraw_line
+                call prompt_line
                 jr cw_close
 cw_relist:
                 push iy
@@ -952,10 +937,7 @@ cw_relist:
                 ld d, 0
                 ld c, SYS_CLOSE
                 rst 08h
-                ld de, bin_dir
-                ld c, SYS_OPEN
-                ld b, O_READ
-                rst 08h
+                call cw_opendir
                 jr c, cw_relist_done
                 ld a, l
                 ld (comp_fd), a
@@ -1020,14 +1002,17 @@ cw_close:
 cw_match:
                 call cw_prefix_ok
                 ret nc
+; Counts a match and keeps its name for cw_insert.
 cm_hit:
                 ld a, (comp_n)
                 cp 8
                 ret nc
                 inc a
                 ld (comp_n), a
-                ret
-cm_fail:
+                ld hl, path_buf + 2
+                ld de, argv_blk
+                ld bc, NAME_MAX
+                ldir
                 ret
 cw_prefix_ok:
                 ld hl, (cw_ptr)
@@ -1075,7 +1060,7 @@ can_cr:
                 pop bc
                 ret
 cw_insert:
-                ld hl, path_buf + 2
+                ld hl, argv_blk
                 ld de, (cw_ptr)
 ci_skip:
                 ld a, (de)
@@ -1125,9 +1110,14 @@ cw_ins_sl:
                 pop bc
                 call cw_stat_dir
                 ret
+; Adds / after a completed directory path.
 cw_stat_dir:
+                ld de, (cw_dir)
+                ld a, d
+                or e
+                ret z
+                ld (iy + 0), 0
                 ld c, SYS_STAT
-                ld de, path_buf + 2
                 ld hl, st
                 rst 08h
                 ret c
@@ -1135,10 +1125,46 @@ cw_stat_dir:
                 cp INO_KIND_DIR
                 ret nz
                 ld a, '/'
-                ld (de), a
-                inc de
                 ld (iy + 0), a
-                call write_byte
+                inc iy
+                ld hl, cur_pos
+                inc (hl)
+                jp write_byte
+
+; Opens the directory being completed: /bin, or the word up to its last /.
+; The line is cut there for the open. HL = fd, or carry.
+cw_opendir:
+                ld hl, (cw_dir)
+                ld a, h
+                or l
+                ld de, bin_dir
+                jr z, cw_od_open
+                ld de, (cw_ptr)
+                dec de
+                ld a, e
+                cp l
+                jr nz, cw_od_cut
+                ld a, d
+                cp h
+                jr nz, cw_od_cut
+                inc de
+cw_od_cut:
+                ld a, (de)
+                push de
+                push af
+                xor a
+                ld (de), a
+                ex de, hl
+                call cw_od_open
+                pop bc
+                pop de
+                ld a, b
+                ld (de), a
+                ret
+cw_od_open:
+                ld c, SYS_OPEN
+                ld b, O_READ
+                rst 08h
                 ret
 cw_noword:
                 pop iy
@@ -1156,4 +1182,5 @@ cw_ptr          equ comp_fd + 1
 comp_n          equ cw_ptr + 2
 cw_suff         equ comp_n + 1
 st              equ cw_suff + 2
-                assert st + 6 - line <= 320
+cw_dir          equ st + 6
+                assert cw_dir + 2 - line <= 320
