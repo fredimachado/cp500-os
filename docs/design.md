@@ -481,9 +481,10 @@ Reads and writes on character devices (console, serial, pipes):
   shell uses backspace byte `08h`, TAB completion, UP and DOWN for a 4-line
   by 128-byte history ring in kernel RAM (`CON_HIST` at `BF00h`, owner
   `FEh`, `ioctl` requests `5` get and `6` put), `>` redirection through the
-  spawn fd map, and prints `exit N` only when `N` is not 0. LEFT and RIGHT
-  arrive as `ESC [ D` and `ESC [ C`. History is not stored in the shell's
-  bss.
+  spawn fd map, and prints `exit N` only when `N` is not 0. LEFT is the
+  CP-500's backspace key: it arrives as `ESC [ D`, and the shell erases with
+  it as with `08h` (`BS`, space, `BS`). RIGHT is ignored. History is not
+  stored in the shell's bss.
 
 ### Non-blocking I/O
 

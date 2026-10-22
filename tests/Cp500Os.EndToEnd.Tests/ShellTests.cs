@@ -10,6 +10,20 @@ public sealed class ShellTests
     }
 
     [Fact]
+    public async Task LeftArrowErasesLikeBackspace()
+    {
+        RunResult run = await TypeAsync("lss{LEFT}{ENTER}", "bin");
+        Assert.Contains("sh>ls", Visible(run.Stdout));
+    }
+
+    [Fact]
+    public async Task ErasedCharactersLeaveTheScreen()
+    {
+        RunResult run = await TypeAsync("abcd{LEFT}{LEFT}", "sh>ab");
+        Assert.Equal("sh>ab", Visible(run.Stdout)[^1]);
+    }
+
+    [Fact]
     public async Task HistoryRecallsPriorLine()
     {
         RunResult run = await TypeAsync("histline{ENTER}{UP}{ENTER}/lib/syscalltest.c5x z{ENTER}", "ok");

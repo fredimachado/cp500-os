@@ -545,12 +545,15 @@ edit_csi:
                 ld a, 2
                 ld (esc_state), a
                 ret
+; LEFT is the CP-500's backspace key, and it arrives as ESC [ D.
 edit_final:
                 ld a, b
                 cp 'A'
                 jp z, hist_up
                 cp 'B'
                 jp z, hist_dn
+                cp 'D'
+                call z, edit_bs
 edit_esc_done:
                 xor a
                 ld (esc_state), a
@@ -564,11 +567,12 @@ edit_bs:
                 dec iy
                 xor a
                 ld (iy + 0), a
-                ld a, 08h
-                call write_byte
+                ld hl, bs_seq
+                call write_str
                 ld a, 0FFh
                 ld (hist_pos), a
                 ret
+bs_seq:         db 08h, " ", 08h, 0
 edit_tab:
                 call complete_word
                 ld hl, line
