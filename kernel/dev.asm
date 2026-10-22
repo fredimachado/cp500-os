@@ -168,12 +168,20 @@ dc_busy:
                 jr z, dc_rw
                 cp SYS_IOCTL
                 jp z, dc_ioctl
+                cp SYS_DENIED
+                jr z, dc_denied
                 cp SYS_SOCKET
                 jr c, dc_nosock
-                cp SYS_RESOLVE + 1
+                cp SYS_TASKINFO + 1
                 jr nc, dc_nosock
                 pop ix
+                cp SYS_TASKINFO
+                jp z, n_taskinfo
                 jp net_call
+dc_denied:
+                pop ix
+                ld a, EBUSY
+                jp dev_err
 dc_nosock:
                 pop ix
                 pop af
@@ -635,6 +643,7 @@ rw_fail:
                 include "vol.asm"
                 include "hd.asm"
                 include "net.asm"
+                include "tasks.asm"
 
 banner_puts:
                 ld hl, banner_rest

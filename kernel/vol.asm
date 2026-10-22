@@ -92,9 +92,95 @@ vol_gate:
                 pop de
                 pop bc
 vg_go:
+                ld a, c
+                cp SYS_SPAWN
+                jr z, vg_spawn
+                cp SYS_KILL
+                jr nz, vg_run
+                ; Kill guard: init's children (shell, rc) are not killable. Slots 1-7 only.
+                ld a, e
+                dec a
+                cp TASK_SLOTS - 1
+                jr nc, vg_run
+                add a, (T_STATE + 1) & 0FFh
+                ld l, a
+                ld h, T_STATE >> 8
+                ld a, (hl)
+                or a
+                jr z, vg_run
+                ld a, l
+                add a, T_PARENT - T_STATE
+                ld l, a
+                ld a, (hl)
+                or a
+                jr nz, vg_run
+                ld c, SYS_DENIED
+vg_run:
                 pop hl
                 pop af
                 jp syscall
+
+; Names the slot spawn will take, the lowest free one, after the basename of
+; the path: up to 7 characters, ending at '.'. Keeps BC, DE, HL.
+vg_spawn:
+                push bc
+                push de
+                push hl
+                ld hl, T_STATE + 1
+                ld b, TASK_SLOTS - 1
+vgs_find:
+                ld a, (hl)
+                or a
+                jr z, vgs_name
+                inc l
+                djnz vgs_find
+                jr vgs_out
+vgs_name:
+                ld a, l
+                sub T_STATE & 0FFh
+                add a, a
+                add a, a
+                add a, a
+                add a, TASK_NAMES & 0FFh
+                ld c, a
+                ld b, TASK_NAMES >> 8
+                ld h, d
+                ld l, e
+vgs_scan:
+                ld a, (hl)
+                inc hl
+                or a
+                jr z, vgs_copy
+                cp '/'
+                jr nz, vgs_scan
+                ld d, h
+                ld e, l
+                jr vgs_scan
+vgs_copy:
+                ld h, b
+                ld l, c
+                ld b, TASK_NAME_LEN - 1
+vgs_char:
+                ld a, (de)
+                or a
+                jr z, vgs_pad
+                cp '.'
+                jr z, vgs_pad
+                ld (hl), a
+                inc hl
+                inc de
+                djnz vgs_char
+vgs_pad:
+                inc b
+vgs_zero:
+                ld (hl), 0
+                inc hl
+                djnz vgs_zero
+vgs_out:
+                pop hl
+                pop de
+                pop bc
+                jr vg_run
 
 vol_inode:
                 push af
