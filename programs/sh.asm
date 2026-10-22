@@ -89,7 +89,7 @@ try_query:
                 jr z, try_query_go
                 ld ix, map_redir
 try_query_go:
-                call spawn_line
+                call spawn_redir
                 jp c, show_err
                 ld hl, ok_text
                 call write_str
@@ -116,7 +116,7 @@ run_one:
                 jr z, run_one_go
                 ld ix, map_redir
 run_one_go:
-                call spawn_line
+                call spawn_redir
                 jp c, show_err
                 call fg_wait
 report:
@@ -193,6 +193,20 @@ close_a:
                 ld d, 0
                 ld c, SYS_CLOSE
                 rst 08h
+                ret
+
+; spawn_line, then closes the shell's copy of a "> path" file.
+spawn_redir:
+                call spawn_line
+                push af
+                push hl
+                ld hl, map_redir + 1
+                ld a, (hl)
+                ld (hl), 1
+                cp 1
+                call nz, close_a
+                pop hl
+                pop af
                 ret
 
 ; HL = command text, IX = fd map. HL = task id, or carry and A = error.

@@ -52,6 +52,14 @@ public sealed class ShellTests
     }
 
     [Fact]
+    public async Task RedirectsDoNotLeakDescriptors()
+    {
+        string nine = string.Concat(Enumerable.Repeat("ls /tmp > /tmp/o{ENTER}", 9));
+        RunResult run = await TypeAsync(nine + "/bin/cat /home/note{ENTER}", "hello");
+        Assert.DoesNotContain("EMFILE", Visible(run.Stdout));
+    }
+
+    [Fact]
     public async Task RedirectWritesFile()
     {
         RunResult run = await TypeAsync("? /lib/syscalltest.c5x z > /tmp/out{ENTER}/bin/cat /tmp/out{ENTER}", "ok");
