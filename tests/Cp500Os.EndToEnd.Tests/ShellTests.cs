@@ -81,6 +81,15 @@ public sealed class ShellTests
     }
 
     [Fact]
+    public async Task CopiedMultiBlockProgramRuns()
+    {
+        RunResult run = await TypeAsync("/bin/cp /bin/date /tmp/d{ENTER}/tmp/d{ENTER}", ":");
+        string[] lines = Visible(run.Stdout);
+        Assert.Contains(lines, line => line.Length == 19 && line[4] == '-' && line[13] == ':');
+        Assert.DoesNotContain(lines, line => line.StartsWith("exit ", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RedirectWritesFile()
     {
         RunResult run = await TypeAsync("? /lib/syscalltest.c5x z > /tmp/out{ENTER}/bin/cat /tmp/out{ENTER}", "ok");

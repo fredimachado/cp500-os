@@ -990,21 +990,18 @@ pw_x:           exx
                 ld e, a
                 ld a, (INO_BUF + INO_SIZE + 2)
                 ld d, a
+; B = whole blocks left, DE = logical block. floppy_write does not keep BC.
 pw_full:        ld a, b
                 or a
                 jr z, pw_part
                 push bc
                 push de
                 call fs_map
-                ld (wr_blk), de
+                ld hl, (io_buf)
+                call nc, floppy_write
                 pop de
                 pop bc
                 ret c
-                ld hl, (io_buf)
-                ld de, (wr_blk)
-                call floppy_write
-                ret c
-                ld hl, (io_buf)
                 inc h
                 ld (io_buf), hl
                 inc de
