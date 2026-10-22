@@ -212,38 +212,26 @@ hd_clock:
                 ld a, (hc_buf)
                 bit 7, a
                 ret nz
-                call hc_bcd
-                ret c
                 cp 60
                 ret nc
                 ld (hc_tsec), a
                 ld a, (hc_buf + 1)
-                call hc_bcd
-                ret c
                 cp 60
                 ret nc
                 ld (hc_tmin), a
                 ld a, (hc_buf + 2)
                 bit 6, a
                 ret nz
-                call hc_bcd
-                ret c
                 cp 24
                 ret nc
                 ld (hc_thour), a
                 ld a, (hc_buf + 3)
-                call hc_bcd
-                ret c
                 ld (hc_yy), a
                 ld a, (hc_buf + 4)
-                call hc_bcd
-                ret c
                 cp 32
                 ret nc
                 ld (hc_day), a
                 ld a, (hc_buf + 5)
-                call hc_bcd
-                ret c
                 or a
                 ret z
                 cp 13
@@ -256,32 +244,6 @@ hd_clock:
                 ret z
                 ld de, hc_sec
                 jp WR_SET
-
-hc_bcd:
-                ld h, a
-                and 0Fh
-                cp 10
-                jr nc, hc_bad
-                ld l, a
-                ld a, h
-                rrca
-                rrca
-                rrca
-                rrca
-                and 0Fh
-                cp 10
-                jr nc, hc_bad
-                ld h, a
-                ld a, l
-                ld b, 10
-hb_mul:
-                add a, h
-                djnz hb_mul
-                or a
-                ret
-hc_bad:
-                scf
-                ret
 
 hc_pack:
                 xor a
