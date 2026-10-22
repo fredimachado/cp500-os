@@ -5,15 +5,40 @@ public sealed class ShellTests
     [Fact]
     public async Task BackspaceEditsLine()
     {
-        RunResult run = await TypeAsync("ab{BS}c{ENTER}? /lib/syscalltest.c5x z{ENTER}", "ok");
+        RunResult run = await TypeAsync("ab{BS}c{ENTER}/lib/syscalltest.c5x z{ENTER}", "ok");
         AssertOk(run);
     }
 
     [Fact]
     public async Task HistoryRecallsPriorLine()
     {
-        RunResult run = await TypeAsync("histline{ENTER}{UP}{ENTER}? /lib/syscalltest.c5x z{ENTER}", "ok");
+        RunResult run = await TypeAsync("histline{ENTER}{UP}{ENTER}/lib/syscalltest.c5x z{ENTER}", "ok");
         AssertOk(run);
+        Assert.Equal(2, Visible(run.Stdout).Count(line => line == "sh>histline"));
+    }
+
+    [Fact]
+    public async Task DownPastNewestClearsLine()
+    {
+        RunResult run = await TypeAsync("one{ENTER}two{ENTER}{UP}{UP}{DOWN}{DOWN}x", "sh>x");
+        Assert.Contains("sh>x", Visible(run.Stdout));
+    }
+
+    [Fact]
+    public async Task FifthLineKeepsHistoryOffTheScreen()
+    {
+        RunResult run = await TypeAsync("aa{ENTER}bb{ENTER}cc{ENTER}dd{ENTER}ee{ENTER}{UP}", "sh>ee");
+        string[] lines = Visible(run.Stdout);
+        Assert.DoesNotContain(lines, line => line.StartsWith(' '));
+        Assert.Equal("sh>ee", lines[^1]);
+    }
+
+    [Fact]
+    public async Task ErrorLeavesCursorOnPromptRow()
+    {
+        RunResult run = await TypeAsync("nosuch{ENTER}", "ENOENT");
+        string[] rows = [.. run.Stdout.Split('\n').Select(line => line.TrimEnd(' ', '\r')).Where(line => line.Length > 0)];
+        Assert.Matches("^sh>█?$", rows[^1]);
     }
 
     [Fact]
@@ -37,9 +62,17 @@ public sealed class ShellTests
     public async Task DuplicateHistoryEntryIsNotStored()
     {
         RunResult run = await TypeAsync(
-            "dup{ENTER}dup{ENTER}{UP}{ENTER}? /lib/syscalltest.c5x z{ENTER}",
+            "first{ENTER}dup{ENTER}dup{ENTER}{UP}{UP}{ENTER}/lib/syscalltest.c5x z{ENTER}",
             "ok");
         AssertOk(run);
+        Assert.Equal(2, Visible(run.Stdout).Count(line => line == "sh>first"));
+    }
+
+    [Fact]
+    public async Task UpPastOldestKeepsLine()
+    {
+        RunResult run = await TypeAsync("only{ENTER}{UP}{UP}{UP}", "sh>only");
+        Assert.Equal("sh>only", Visible(run.Stdout)[^1]);
     }
 
     [Fact]
@@ -57,6 +90,7 @@ public sealed class ShellTests
             "--until-screen", "sh>", "--timeout", "20s",
             "--type", typed,
             "--until-screen", until,
+            "--run", "500ms",
             "--dump-screen");
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         return run;

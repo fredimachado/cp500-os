@@ -105,14 +105,14 @@ public sealed class Milestone5Tests
     public async Task AcuteDeadKeyComposesAndFallsBack()
     {
         RunResult run = await TypeAsync("'a'e'i'C", "áéiÇ");
-        Assert.Contains(Visible(run.Stdout), line => line == "áéiÇ");
+        Assert.Contains(Visible(run.Stdout), line => line == "sh>áéiÇ");
     }
 
     [Fact]
     public async Task ApostropheThenSpaceIsAnApostrophe()
     {
         RunResult run = await TypeAsync("' x", "'x");
-        Assert.Contains(Visible(run.Stdout), line => line == "'x");
+        Assert.Contains(Visible(run.Stdout), line => line == "sh>'x");
     }
 
     [Fact]

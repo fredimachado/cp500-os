@@ -4,15 +4,20 @@
 
                 org ORIGIN
 
+; The first prompt starts a row of its own; later ones follow a CR already.
+                ld hl, redraw_seq
+                ld ix, redraw_seq_end - redraw_seq
+                jr shell_prompt
 shell:
                 ld c, SYS_WAIT
                 ld de, 0FEh
                 rst 08h
                 jr nc, shell
+                ld hl, redraw_seq + 1
+                ld ix, redraw_seq_end - redraw_seq - 1
+shell_prompt:
                 ld c, SYS_WRITE
                 ld de, 1
-                ld hl, prompt_seq
-                ld ix, prompt_end - prompt_seq
                 rst 08h
                 ld iy, line
                 xor a
@@ -235,15 +240,10 @@ fg_sync_clear:
                 ld (cur_pos), a
                 ld (line), a
                 ld iy, line
-                call redraw_line
-                ret
+                jp replace_line
 
 show_err:
                 ld c, a
-                push bc
-                ld a, 0Dh
-                call write_byte
-                pop bc
                 ld hl, err_table
 err_find:
                 ld a, (hl)
@@ -324,11 +324,7 @@ write_byte:
                 rst 08h
                 ret
 
-prompt_seq:
-                db 0Dh, "sh>", 0Dh
-prompt_end:
 out_ch:         db 0
-cr_byte:        db 0Dh
 
 bin_lit:        db "/bin/"
 bin_dir:        db "/bin", 0
@@ -542,13 +538,6 @@ edit_final:
                 jp z, hist_up
                 cp 'B'
                 jp z, hist_dn
-                push af
-                ld a, 1Bh
-                call write_byte
-                ld a, '['
-                call write_byte
-                pop af
-                call write_byte
 edit_esc_done:
                 xor a
                 ld (esc_state), a
@@ -608,11 +597,8 @@ hist_dn:
                 ret
 hist_clear:
                 xor a
-                ld (cur_pos), a
                 ld (line), a
-                ld iy, line
-                call redraw_line
-                ret
+                jp replace_line
 hist_fetch:
                 ld a, (hist_pos)
                 ld (argv_blk), a
@@ -635,6 +621,13 @@ hf_copy:
                 jr hf_copy
 hf_done:
                 call redraw_line
+                ld a, (argv_blk + 1)
+                or a
+                jr nz, hf_have
+                ld hl, hist_pos
+                dec (hl)
+                ret
+hf_have:
                 ret
 hist_save:
                 ld hl, line
@@ -678,34 +671,61 @@ hist_same:
                 inc hl
                 jr hist_same
 redraw_line:
-                ld c, SYS_WRITE
-                ld de, 1
                 ld hl, redraw_seq
                 ld ix, redraw_seq_end - redraw_seq
-                rst 08h
+                jr rl_seq
+; The prompt and the line, where the cursor is.
+prompt_line:
+                ld hl, redraw_seq + 1
+                ld ix, redraw_seq_end - redraw_seq - 1
+                jr rl_seq
+; Rewrites the prompt row in place. cur_pos is the length still on screen.
+replace_line:
                 ld a, (cur_pos)
-                ld b, a
+                add a, 3
+                rlca
+                rlca
+                and 3
+                jr z, rp_col
+                add a, '0'
+                ld (rp_up + 2), a
+                ld c, SYS_WRITE
+                ld de, 1
+                ld hl, rp_up
+                ld ix, 4
+                rst 08h
+rp_col:
+                ld hl, rp_seq
+                ld ix, rp_seq_end - rp_seq
+rl_seq:
+                ld c, SYS_WRITE
+                ld de, 1
+                rst 08h
                 ld hl, line
-                or a
-                jr z, rl_done
+                ld b, 0
 rl_out:
                 ld a, (hl)
                 push hl
+; A prompt on the next row, then the line. A program's output may not end its row.
                 call write_byte
                 pop hl
                 inc hl
-                djnz rl_out
+                inc b
+                jr rl_out
 rl_done:
-                xor a
-                ld (hl), a
-                ld hl, line
-                ld e, a
-                ld d, 0
-                add hl, de
+                ld a, b
+                ld (cur_pos), a
                 push hl
                 pop iy
+                or a
+                jr z, rl_done
                 ret
-redraw_seq:     db 0Dh, "sh>", 0
+                push bc
+rp_up:          db 1Bh, "[1A"
+rp_seq:         db 1Bh, "[99D", 1Bh, "[J", "sh>"
+rp_seq_end:
+redraw_seq:     db 0Dh, "sh>"
+                pop bc
 redraw_seq_end:
 
 ; HL = line, IX = map. Strips trailing " > path", opens outfile.

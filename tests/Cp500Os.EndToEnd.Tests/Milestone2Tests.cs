@@ -32,12 +32,12 @@ public sealed class Milestone2Tests : IDisposable
             "--dump-screen");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
-        Assert.Contains(run.Stdout.Split('\n'), line => line == "Hi" || line.StartsWith("Hi", StringComparison.Ordinal));
+        Assert.Contains(run.Stdout.Split('\n'), line => line.StartsWith("sh>Hi", StringComparison.Ordinal));
         AssertBanner(run);
     }
 
     [Fact]
-    public async Task RightArrowMovesTheCursorBeforeTheNextGlyph()
+    public async Task RightArrowLeavesTheShellLineAlone()
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
@@ -46,7 +46,7 @@ public sealed class Milestone2Tests : IDisposable
             "--dump-screen");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
-        Assert.Contains(run.Stdout.Split('\n'), static line => line.StartsWith(" Z", StringComparison.Ordinal));
+        Assert.Contains(run.Stdout.Split('\n'), static line => line.StartsWith("sh>Z", StringComparison.Ordinal));
     }
 
     [Fact]
