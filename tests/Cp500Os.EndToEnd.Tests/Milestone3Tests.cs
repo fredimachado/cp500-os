@@ -118,12 +118,12 @@ public sealed class Milestone3Tests : IDisposable
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", Product(),
             "--until-screen", "sh>", "--timeout", "20s",
-            "--type", "? /lib/reloc.c5x{ENTER}", "--until-screen", "ok",
+            "--type", "? /lib/reloc.c5x{ENTER}", "--until-screen", "ok 2",
             "--dump-screen",
             "--dump-memory", $"{childPage * 256:X4}:{counter}");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
-        Assert.Contains(Visible(run.Stdout), line => line == "ok");
+        Assert.Contains(Visible(run.Stdout), line => line == "ok 2");
         Assert.Equal(sample.RelocateTo((byte)childPage)[..counter], run.DumpedMemory());
     }
 

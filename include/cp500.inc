@@ -243,7 +243,7 @@ WR_SYNC             equ WR_BASE + 15
 WR_TIME             equ WR_BASE + 18
 WR_SET              equ WR_BASE + 21
 ARENA_FIRST         equ 62h
-ARENA_LAST          equ 0EFh            ; last page programs and pipes may use
+ARENA_LAST          equ 0EFh            ; page range top; dev_init owns D3h-EFh (SER, DEV), so programs stop at D2h
 KERNEL_RESERVE      equ 192
 PATH_MAX            equ 127
 ARGV_MAX            equ 128

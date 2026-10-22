@@ -27,7 +27,7 @@ bad_type:
                 cp EINVAL
                 jp exit_a
 bad_call:
-                ld c, 58h
+                ld c, 59h
                 rst 08h
                 jp nc, exit_bad
                 cp EINVAL

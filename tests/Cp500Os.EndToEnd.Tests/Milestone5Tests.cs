@@ -26,7 +26,9 @@ public sealed class Milestone5Tests
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         string[] lines = Visible(run.Stdout);
-        Assert.Equal(2, lines.Count(line => line == "ok"));
+        Assert.Equal(2, lines.Count(line => line.StartsWith("ok ", StringComparison.Ordinal)));
+        Assert.Contains(lines, line => line == "ok 2");
+        Assert.Contains(lines, line => line == "ok 3");
         Assert.DoesNotContain(lines, line => line == "EBUSY");
     }
 
