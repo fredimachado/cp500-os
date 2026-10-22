@@ -1,4 +1,4 @@
-; telnet host [port]. Default port 23. Raw byte bridge.
+; telnet host [port]. Default port 23. Char-at-a-time with local echo.
 
                 include "cp500.inc"
 
@@ -61,14 +61,29 @@ from_stdin:
                 ld c, SYS_READ
                 ld de, 0
                 ld hl, buf
-                ld ix, 256
+                ld ix, 1
                 rst 08h
                 jp c, fail
                 ld a, h
                 or l
                 ret z
-                push hl
-                pop ix
+                ld hl, buf
+                ld de, 1
+                ld ix, 1
+                ld c, SYS_WRITE
+                rst 08h
+                jp c, fail
+                ld a, (buf)
+                cp 0Dh
+                jr nz, fs_send1
+                ; NVT: Enter is CRLF on the wire; local console already took CR.
+                ld a, 0Ah
+                ld (buf + 1), a
+                ld ix, 2
+                jr fs_send
+fs_send1:
+                ld ix, 1
+fs_send:
                 ld a, (sfd)
                 ld e, a
                 ld d, 0

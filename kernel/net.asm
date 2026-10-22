@@ -153,18 +153,6 @@ w5_ra:
 
 ; A socket, E reg -> HL addr. 0400h + n<<8 + reg.
 w5_sa:
-                ld c, a
-                ld a, e
-                ld e, a
-                ld a, c
-                add a, a
-                add a, a
-                add a, a
-                add a, a
-                add a, a
-                add a, a
-                add a, a
-                add a, a
                 add a, W5_SOCK0 >> 8
                 ld h, a
                 ld l, e
@@ -264,18 +252,21 @@ n_socket:
                 jp dev_ok
 
 ; Marks chip sockets 0-2 that are already open in OF_INO. Returns one in net_s.
+; H holds the in-use bitmap; ofile_of clears H, so the bitmap is saved across the call.
 net_pick_sock:
                 ld hl, 0
                 ld b, OFILE_SLOTS
 nps_mark:
                 ld a, l
+                push hl
                 call ofile_of
                 ld a, (hl)
                 cp KIND_NET
-                jr nz, nps_mark_next
+                jr nz, nps_mark_miss
                 inc hl
                 inc hl
                 ld a, (hl)
+                pop hl
                 cp 3
                 jr nc, nps_mark_next
                 or a
@@ -289,6 +280,9 @@ nps_mark_b0:
                 jr nps_mark_next
 nps_mark_b1:
                 set 1, h
+                jr nps_mark_next
+nps_mark_miss:
+                pop hl
 nps_mark_next:
                 inc l
                 djnz nps_mark
@@ -516,43 +510,20 @@ ns_eio:
                 jp dev_err
 
 ; HL chip ptr, DE host buf, BC len.
+; Chip address is not wrapped here; callers send at most one TX bank from TX_WR 0.
 w5_buf_tx:
                 push bc
-                push de
 w5btx:
                 ld a, b
                 or c
                 jr z, w5btx_done
-                push bc
-                push de
-                push hl
                 ld a, (de)
-                inc de
                 call w5_wa
-                pop hl
+                inc de
                 inc hl
-                ld a, h
-                cp (W5_TX0 + W5_STEP) >> 8
-                jr c, w5btx_adv
-                ld a, W5_TX0 >> 8
-                ld h, a
-                ld a, l
-                and W5_MASK & 0FFh
-                ld l, a
-                jr w5btx_st
-w5btx_adv:
-                ld a, l
-                and W5_MASK & 0FFh
-                ld l, a
-w5btx_st:
-                ex de, hl
-                pop hl
-                pop de
-                ex de, hl
                 dec bc
                 jr w5btx
 w5btx_done:
-                pop de
                 pop bc
                 ret
 

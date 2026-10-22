@@ -34,15 +34,44 @@ public sealed class Milestone8Tests
         using var listen = new TcpListener(IPAddress.Loopback, 0);
         listen.Start();
         int port = ((IPEndPoint)listen.LocalEndpoint).Port;
-        Task<RunResult> run = RunNetworkAsync(
-            $"/bin/telnet 127.0.0.1 {port}",
-            "connected",
-            "closed");
+        var args = new List<string>
+        {
+            "--rom", Roms.Stub,
+            "--disk0", Product(),
+            "--w5100",
+            "--until-screen", "sh>",
+            "--timeout", "20s",
+            "--type", $"/bin/telnet 127.0.0.1 {port}{{ENTER}}",
+            "--until-screen", "connected",
+            "--type", "Hi{ENTER}",
+            "--until-screen", "Yo",
+            "--until-screen", "closed",
+            "--dump-screen",
+        };
+        Task<RunResult> run = HeadlessRunner.RunAsync([.. args]);
         using TcpClient peer = await listen.AcceptTcpClientAsync(TestContext.Current.CancellationToken);
+        using NetworkStream stream = peer.GetStream();
+        var got = new byte[4];
+        int n = 0;
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (n < 4 && DateTime.UtcNow < deadline)
+        {
+            if (peer.Available > 0)
+                n += await stream.ReadAsync(got.AsMemory(n, 4 - n), TestContext.Current.CancellationToken);
+            else
+                await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(4, n);
+        Assert.Equal("Hi\r\n"u8.ToArray(), got.AsSpan(0, 4).ToArray());
+        await stream.WriteAsync("Yo"u8.ToArray(), TestContext.Current.CancellationToken);
         peer.Client.Shutdown(SocketShutdown.Send);
         RunResult finished = await run;
+        Assert.True(finished.ExitCode == 0, finished.Stderr + finished.Stdout);
         Assert.Contains("connected", Visible(finished.Stdout));
-        Assert.Contains("closed", Visible(finished.Stdout));
+        Assert.Contains(Visible(finished.Stdout), line => line.Contains("Hi", StringComparison.Ordinal));
+        Assert.Contains(Visible(finished.Stdout), line => line.Contains("Yo", StringComparison.Ordinal));
+        Assert.Contains(Visible(finished.Stdout), line => line.Contains("closed", StringComparison.Ordinal));
     }
 
     [Fact]
