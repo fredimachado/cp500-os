@@ -111,10 +111,10 @@ public sealed class Milestone7Tests
     [Fact]
     public async Task SecondFloppyReadsAndWritesAfterRootAccess()
     {
-        string second = Path.Combine(Path.GetTempPath(), $"cp500-fd1-{Guid.NewGuid():N}.dsk");
-        File.Copy(Product(), second);
+        string first = ProductCopy("cp500-fd0");
+        string second = ProductCopy("cp500-fd1");
         RunResult run = await HeadlessRunner.RunAsync(
-            "--rom", Roms.Stub, "--disk0", Product(), "--disk1", second, "--write-back", "--timeout", "40s",
+            "--rom", Roms.Stub, "--disk0", first, "--disk1", second, "--write-back", "--timeout", "40s",
             "--until-screen", "sh>",
             "--type", "/bin/ls /home{ENTER}/bin/cat /mnt/fd1/home/note{ENTER}/bin/cp /bin/date /mnt/fd1/home/d{ENTER}",
             "--run", "8s",
@@ -132,7 +132,7 @@ public sealed class Milestone7Tests
         HardDiskBoard.Require();
         Volume part = PartitionVolume(400, []);
         string hd = WriteHd([part, null, null, null]);
-        string disk = Product();
+        string disk = ProductCopy("cp500-fd0");
         RunResult run = await HeadlessRunner.RunAsync([
             "--rom", Roms.Stub, "--disk0", disk, .. HdArgs(hd), "--write-back", "--timeout", "40s",
             "--until-screen", "sh>",
@@ -298,6 +298,14 @@ public sealed class Milestone7Tests
         int mark = sym.IndexOf("clk_base: EQU 0x", StringComparison.Ordinal);
         Assert.True(mark >= 0);
         return ushort.Parse(sym.AsSpan(mark + "clk_base: EQU 0x".Length, 8), NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+    }
+
+    /// <summary>A private copy for a run that writes back, so the shared product image stays as built.</summary>
+    private static string ProductCopy(string prefix)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"{prefix}-{Guid.NewGuid():N}.dsk");
+        File.Copy(Product(), path);
+        return path;
     }
 
     private static string Product() => Path.Combine(RepoPaths.Root, "build", "cp500-os.dsk");
