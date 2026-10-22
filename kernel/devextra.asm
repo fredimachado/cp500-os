@@ -407,15 +407,12 @@ fdr_dig:
                 call fd_probe
                 pop bc
                 jp c, DEV_V_ERR
-                call c5fs_layout
+                push bc
+                call c5fs_pick
+                call nc, c5fs_layout
+                pop bc
                 jr nc, fdr_on
-                ld l, b
-                ld h, 0
-                ld de, FD_DRV
-                add hl, de
-                ld (hl), 0
-                xor a
-                call VB_ENT
+                call fd_forget
                 ld a, EIO
                 jp DEV_V_ERR
 fdr_on:
@@ -434,7 +431,6 @@ fdr_on:
                 ld a, (hl)
                 cp '/'
                 jr nz, fdr_root
-                inc hl
                 ex de, hl
                 jr fdr_set
 fdr_root:
@@ -478,13 +474,7 @@ fd_probe:
                 ld (fr_sel + 1), a
                 pop af
                 ret nc
-                ld l, c
-                ld h, 0
-                ld de, FD_DRV
-                add hl, de
-                ld (hl), 0
-                xor a
-                call VB_ENT
+                call fd_forget
                 in a, (FDC_STATUS)
                 bit FDC_NOT_READY_BIT, a
                 ld a, EIO
@@ -492,6 +482,16 @@ fd_probe:
                 ld a, ENODEV
                 scf
                 ret
+
+; C = drive. Forgets its mount and binds the root volume again.
+fd_forget:
+                ld l, c
+                ld h, 0
+                ld de, FD_DRV
+                add hl, de
+                ld (hl), 0
+                xor a
+                jp VB_ENT
 
 pfx:
                 ld a, (de)

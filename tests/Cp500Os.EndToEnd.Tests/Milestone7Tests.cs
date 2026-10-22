@@ -109,6 +109,24 @@ public sealed class Milestone7Tests
     }
 
     [Fact]
+    public async Task SecondFloppyReadsAndWritesAfterRootAccess()
+    {
+        string second = Path.Combine(Path.GetTempPath(), $"cp500-fd1-{Guid.NewGuid():N}.dsk");
+        File.Copy(Product(), second);
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", Product(), "--disk1", second, "--write-back", "--timeout", "40s",
+            "--until-screen", "sh>",
+            "--type", "/bin/ls /home{ENTER}/bin/cat /mnt/fd1/home/note{ENTER}/bin/cp /bin/date /mnt/fd1/home/d{ENTER}",
+            "--run", "8s",
+            "--dump-screen");
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        Assert.Contains("hello", Visible(run.Stdout));
+        Assert.DoesNotContain(Visible(run.Stdout), line => line.StartsWith("exit ", StringComparison.Ordinal));
+        byte[] expected = Volume.Open(File.ReadAllBytes(Product())).ReadFile("/bin/date");
+        Assert.Equal(expected, Volume.Open(File.ReadAllBytes(second)).ReadFile("/home/d"));
+    }
+
+    [Fact]
     public async Task PartitionWriteReadsBackOnTheHost()
     {
         HardDiskBoard.Require();

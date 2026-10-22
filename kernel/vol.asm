@@ -274,8 +274,7 @@ blk_hook:
                 or a
                 jr nz, bh_disk
                 ld a, DISK_DRIVE0 | DISK_MFM
-                ld (fr_sel + 1), a
-                jp SEV_DISK
+                jr bh_sel
 
 bh_disk:
                 ld a, (VOL_CUR)
@@ -286,8 +285,60 @@ bh_disk:
                 or a
                 jr z, bh_hd
                 or DISK_MFM
+; A = drive select. The FDC has one track register for all drives, so a drive
+; change saves it for the old drive and loads the new drive's. A drive never
+; used yet is restored to track 0 first.
+bh_sel:
+                ld hl, bh_last
+                cp (hl)
+                jr z, bh_go
+                ld e, (hl)
+                ld (hl), a
+                ld d, a
+                ld a, e
+                and 0Fh
+                ld e, a
+                push de
+                ld d, 0
+                ld hl, bh_trk
+                add hl, de
+                in a, (FDC_TRACK)
+                ld (hl), a
+                pop af
+                push af
+                and 0Fh
+                ld e, a
+                ld hl, bh_trk
+                add hl, de
+                ld a, (hl)
+                inc a
+                jr nz, bh_known
+                pop af
+                push af
+                out (PORT_DISK), a
+                ld a, FDC_CMD_RESTORE | FDC_HEAD_LOAD | FDC_STEP_30MS
+                out (FDC_COMMAND), a
+                ld de, 0
+bh_rest:
+                in a, (FDC_STATUS)
+                and FDC_BUSY
+                jr z, bh_rested
+                dec de
+                ld a, d
+                or e
+                jr nz, bh_rest
+bh_rested:
+                inc a
+bh_known:
+                dec a
+                out (FDC_TRACK), a
+                pop af
+bh_go:
                 ld (fr_sel + 1), a
                 jp SEV_DISK
+
+bh_last:        db DISK_DRIVE0 | DISK_MFM
+bh_trk:         db 0, 0FFh, 0FFh, 0, 0FFh, 0, 0, 0, 0FFh
 bh_hd:
                 ld hl, (VOL_BLOCKS)
                 or a
