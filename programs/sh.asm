@@ -119,12 +119,9 @@ run_one_go:
                 call spawn_line
                 jp c, show_err
                 call fg_wait
-                push af
-                call fg_sync_clear
-                pop af
 report:
                 or a
-                jp z, read_loop
+                jr z, report_done
                 push af
                 ld a, 0Dh
                 call write_byte
@@ -136,6 +133,8 @@ report:
                 call write_dec
                 ld a, 0Dh
                 call write_byte
+report_done:
+                call fg_sync_clear
                 jp read_loop
 
 ; "a ! b": the keyboard has no | key. a's fd 1 and b's fd 0 are the two pipe ends.
@@ -172,7 +171,6 @@ run_pipe:
                 ld hl, (tid_a)
                 call fg_wait
                 pop af
-                call fg_sync_clear
                 jp report
 pipe_fail_a:
                 push af
