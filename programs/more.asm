@@ -1,4 +1,4 @@
-; One screen is 16 lines. Space shows the next screen.
+; One screen is 16 rows: 15 lines and the row the cursor waits on. Space shows the next screen.
 
                 include "cp500.inc"
 
@@ -36,6 +36,7 @@ mo_byte:
                 jr nz, mo_out
                 ld a, 0Dh
 mo_out:         call putc
+                ld a, (ch)
                 cp 0Dh
                 jr z, mo_nl
                 cp 0Ah
@@ -51,7 +52,7 @@ mo_nl:
                 ld hl, lines
                 inc (hl)
                 ld a, (hl)
-                cp 16
+                cp 15
                 jr c, mo_byte
                 call mo_wait
                 xor a
