@@ -20,6 +20,8 @@ dotnet build image/Cp500Os.Disk.proj
 dotnet run --project external/heh8080/src/Heh8080.Desktop -p:PublishAot=false -- --disk build/cp500-os.dsk
 ```
 
+`eng/run-emulator.sh` and `eng/run-emulator.ps1` do both steps.
+
 ## Building
 
 Requirements: the .NET 10 SDK and PowerShell 7. On Linux and macOS, `make`
