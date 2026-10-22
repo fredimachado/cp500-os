@@ -32,7 +32,7 @@ internal static class ModelIIIImport
     public static void ImportFromFile(Volume volume, string sourcePath, TimeProvider time)
     {
         byte[] bytes = File.ReadAllBytes(sourcePath);
-        ModelIIIDiskImageKind kind = ModelIIIDiskCodec.DetectKind(sourcePath, bytes.Length);
+        ModelIIIDiskImageKind kind = ModelIIIDiskCodec.DetectKind(sourcePath, bytes);
         ModelIIIDiskImage disk = ModelIIIDiskCodec.Parse(bytes, kind);
         Import(volume, disk, time);
     }
