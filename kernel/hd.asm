@@ -62,7 +62,6 @@ hd_xfer:
                 ld l, e
                 ld a, l
                 and 1Fh
-                inc a
                 out (PORT_HD_SECTOR), a
                 ld a, l
                 rrca
@@ -84,7 +83,7 @@ hd_xfer:
                 out (PORT_HD_STATUS), a
                 call hd_wait
                 jr c, hx_fail
-                in a, (PORT_HD_ERROR)
+                in a, (PORT_HD_STATUS)
                 and HD_ERR
                 jr nz, hx_fail
                 pop hl
@@ -101,8 +100,8 @@ hx_out:
                 call hd_wait
                 jr c, hx_done_eio
                 in a, (PORT_HD_STATUS)
-                bit 5, a
-                jr z, hx_done_eio
+                and HD_WF | HD_ERR
+                jr nz, hx_done_eio
 hx_done:
                 xor a
                 ret

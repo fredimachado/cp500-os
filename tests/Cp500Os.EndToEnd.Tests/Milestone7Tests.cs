@@ -115,12 +115,12 @@ public sealed class Milestone7Tests
         Volume part = PartitionVolume(400, []);
         string hd = WriteHd([part, null, null, null]);
         string disk = Product();
-        RunResult run = await HeadlessRunner.RunAsync(
-            "--rom", Roms.Stub, "--disk0", disk, "--hd0", hd, "--write-back", "--timeout", "40s",
+        RunResult run = await HeadlessRunner.RunAsync([
+            "--rom", Roms.Stub, "--disk0", disk, .. HdArgs(hd), "--write-back", "--timeout", "40s",
             "--until-screen", "sh>",
             "--type", "/bin/cp /home/note /mnt/hd0p1/note{ENTER}",
             "--run", "5s",
-            "--dump-screen");
+            "--dump-screen"]);
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         byte[] expected = Volume.Open(File.ReadAllBytes(disk)).ReadFile("/home/note");
         byte[] actual = HardDisk.OpenPartition(File.ReadAllBytes(hd), 1).ReadFile("/note");
@@ -161,35 +161,46 @@ public sealed class Milestone7Tests
         HardDiskBoard.Require();
         Volume part = PartitionVolume(200, []);
         string hd = WriteHd([part, null, null, null]);
-        uint board = C5Time.FromDateTime(new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Unspecified)).Seconds;
-        RunResult run = await HeadlessRunner.RunAsync(
-            "--rom", Roms.Stub, "--disk0", Product(), "--hd0", hd, "--timeout", "40s",
+        // The emulated board clock reads the host's local time.
+        uint before = C5Time.Now(TimeProvider.System).Seconds;
+        RunResult run = await HeadlessRunner.RunAsync([
+            "--rom", Roms.Stub, "--disk0", Product(), .. HdArgs(hd), "--timeout", "40s",
             "--until-screen", "sh>",
             "--type", "/bin/date{ENTER}",
             "--run", "3s",
             "--dump-memory", "F7F0:8",
             "--dump-memory", $"{ClockBase():X4}:8",
-            "--dump-screen");
+            "--dump-screen"]);
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         byte[] memory = run.DumpedMemory();
         uint seconds = BitConverter.ToUInt32(memory, 4);
         uint origin = BitConverter.ToUInt32(memory, 8);
-        Assert.Equal(board, origin);
+        Assert.InRange(origin, before - 2, C5Time.Now(TimeProvider.System).Seconds + 2);
         Assert.Contains(Visible(run.Stdout), line => line == new C5Time(seconds).ToString());
+    }
 
+    [Fact]
+    public async Task HaltedBoardClockKeepsRootTime()
+    {
+        HardDiskBoard.Require();
+        if (!HardDiskBoard.CanHaltClock())
+            Assert.Skip("pinned heh8080 cannot halt the FreHD clock");
+
+        Volume part = PartitionVolume(200, []);
+        string hd = WriteHd([part, null, null, null]);
         string image = Product();
         uint lastWritten = Volume.Open(File.ReadAllBytes(image)).Superblock.LastWritten.Seconds;
-        RunResult halt = await HeadlessRunner.RunAsync(
-            "--rom", Roms.Stub, "--disk0", image, "--hd0", hd, "--hd-halt", "--timeout", "40s",
+        RunResult halt = await HeadlessRunner.RunAsync([
+            "--rom", Roms.Stub, "--disk0", image, .. HdArgs(hd), "--hd-halt", "--timeout", "40s",
             "--until-screen", "sh>",
             "--type", "/bin/date{ENTER}",
             "--run", "3s",
             "--dump-memory", "F7F0:8",
             "--dump-memory", $"{ClockBase():X4}:8",
-            "--dump-screen");
+            "--dump-screen"]);
         Assert.True(halt.ExitCode == 0, halt.Stderr + halt.Stdout);
-        memory = halt.DumpedMemory();
-        origin = BitConverter.ToUInt32(memory, 8);
+        byte[] memory = halt.DumpedMemory();
+        uint origin = BitConverter.ToUInt32(memory, 8);
         Assert.Equal(lastWritten, origin);
     }
 
@@ -213,14 +224,12 @@ public sealed class Milestone7Tests
 
     private static async Task<RunResult> RunWithHdAsync(string hd, params string[] extra)
     {
-        var args = new List<string>
-        {
-            "--rom", Roms.Stub, "--disk0", Product(), "--hd0", hd, "--timeout", "40s",
+        RunResult run = await HeadlessRunner.RunAsync([
+            "--rom", Roms.Stub, "--disk0", Product(), .. HdArgs(hd), "--timeout", "40s",
             "--until-screen", "sh>",
             "--type",
-        };
-        args.AddRange(extra);
-        RunResult run = await HeadlessRunner.RunAsync(args.ToArray());
+            .. extra,
+        ]);
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         return run;
     }
@@ -248,16 +257,18 @@ public sealed class Milestone7Tests
         return bytes;
     }
 
-    private static string WriteHd(IReadOnlyList<Volume?> parts)
-    {
-        string path = Path.Combine(Path.GetTempPath(), $"cp500-hd-{Guid.NewGuid():N}.img");
-        File.WriteAllBytes(path, HardDisk.Build(parts));
-        return path;
-    }
+    private static string WriteHd(IReadOnlyList<Volume?> parts) => WriteHdBytes(HardDisk.Build(parts));
+
+    /// <summary>The kernel addresses the FreHD as 8 heads of 32 sectors, so images are whole cylinders.</summary>
+    private const int CylinderBytes = 8 * 32 * VolumeGeometry.BlockSize;
+
+    private static string[] HdArgs(string hd) =>
+        ["--hard-disk", hd, "--chs", $"{new FileInfo(hd).Length / CylinderBytes},8,32"];
 
     private static string WriteHdBytes(byte[] bytes)
     {
         string path = Path.Combine(Path.GetTempPath(), $"cp500-hd-{Guid.NewGuid():N}.img");
+        Array.Resize(ref bytes, (bytes.Length + CylinderBytes - 1) / CylinderBytes * CylinderBytes);
         File.WriteAllBytes(path, bytes);
         return path;
     }
@@ -286,17 +297,21 @@ public sealed class Milestone7Tests
 
 internal static class HardDiskBoard
 {
-    private static bool? _accepted;
+    private static string? _help;
 
     public static void Require()
     {
-        if (_accepted ??= Probe())
+        if (Help().Contains("--hard-disk", StringComparison.Ordinal))
             return;
 
         Assert.Skip("pinned heh8080 has no hard disk; mounted-partition path was not run");
     }
 
-    private static bool Probe()
+    public static bool CanHaltClock() => Help().Contains("--hd-halt", StringComparison.Ordinal);
+
+    private static string Help() => _help ??= ReadHelp();
+
+    private static string ReadHelp()
     {
         string exe = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "heh8080-cp500.exe" : "heh8080-cp500");
         var startInfo = new ProcessStartInfo(exe)
@@ -308,6 +323,6 @@ internal static class HardDiskBoard
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start runner.");
         string text = process.StandardOutput.ReadToEnd();
         process.WaitForExit();
-        return text.Contains("--hd0", StringComparison.Ordinal);
+        return text;
     }
 }
