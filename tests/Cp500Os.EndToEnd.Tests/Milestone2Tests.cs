@@ -23,11 +23,28 @@ public sealed class Milestone2Tests : IDisposable
     }
 
     [Fact]
+    public async Task AnsiSelfTestLeavesOnlyItsMarks()
+    {
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", ProductImage(),
+            "--until-screen", "sh>", "--timeout", "20s",
+            "--type", "/lib/ansitest.c5x{ENTER}",
+            "--until-screen", "ansi/", "--run", "500ms",
+            "--dump-screen");
+
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        string[] rows = run.Stdout.Split('\n');
+        Assert.Equal("ansi/", rows[0].TrimEnd(' ', '\r'));
+        Assert.Equal("XX", rows[2].TrimEnd(' ', '\r'));
+        Assert.DoesNotContain(rows, static row => row.Contains("XXXX", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task StubRomEchoesTypedText()
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
-            "--until-screen", "cp500-os/", "--timeout", "10s",
+            "--until-screen", "cp500-os", "--timeout", "10s",
             "--type", "Hi", "--until-screen", "Hi",
             "--dump-screen");
 
@@ -41,7 +58,7 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
-            "--until-screen", "cp500-os/", "--timeout", "10s",
+            "--until-screen", "cp500-os", "--timeout", "10s",
             "--type", "{RIGHT}Z", "--until-screen", "Z",
             "--dump-screen");
 
@@ -54,7 +71,7 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
-            "--until-screen", "cp500-os/", "--timeout", "10s",
+            "--until-screen", "cp500-os", "--timeout", "10s",
             "--type", "{BREAK}", "--dump-screen");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
@@ -127,7 +144,7 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
-            "--until-screen", "cp500-os/", "--timeout", "10s",
+            "--until-screen", "cp500-os", "--timeout", "10s",
             "--run", duration, "--dump-memory", "4015:4");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
@@ -140,8 +157,8 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", rom, "--disk0", image,
-            "--until-screen", "cp500-os/", "--timeout", timeout,
-            "--until-screen", "XX", "--dump-screen");
+            "--until-screen", "cp500-os", "--timeout", timeout,
+            "--dump-screen");
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         return run;
     }
@@ -149,9 +166,8 @@ public sealed class Milestone2Tests : IDisposable
     private static void AssertBanner(RunResult run)
     {
         string[] lines = run.Stdout.Split('\n');
-        Assert.Contains(lines, static line => line == "cp500-os/");
-        Assert.Contains(lines, static line => line == "XX");
-        Assert.DoesNotContain(lines, static line => line.Contains("XXXX", StringComparison.Ordinal));
+        Assert.Contains(lines, static line => line == "cp500-os");
+        Assert.DoesNotContain(lines, static line => line.Contains("XX", StringComparison.Ordinal));
     }
 
     private static string ProductImage() => Path.Combine(RepoPaths.Root, "build", "cp500-os.dsk");

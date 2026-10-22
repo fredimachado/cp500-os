@@ -54,15 +54,7 @@ km_mount:
 banner:
                 db 1Bh, "[2J"
                 db 1Bh, "[H"
-                db "cp500-os"
-                db 1Bh, "7"
-                db 1Bh, "[3;1H"
-                db "XXXX"
-                db 1Bh, "[3;3H"
-                db 1Bh, "[K"
-                db 1Bh, "8"
-                db "/"
-                db 1Bh, "[3;1H"
+                db "cp500-os", 0Dh
                 db 0
 
                 include "sys.asm"

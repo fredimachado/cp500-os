@@ -46,7 +46,7 @@ public sealed class ShellTests
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", Product(),
-            "--until-screen", "cp500-os/", "--timeout", "10s",
+            "--until-screen", "cp500-os", "--timeout", "10s",
             "--run", "600ms",
             "--dump-screen");
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
