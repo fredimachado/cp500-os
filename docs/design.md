@@ -71,7 +71,11 @@ guaranteed on real hardware.
 4100-41FF  boot and idle stack
 4200-60FF  kernel code and read-only data in the disk image (8 KiB budget)
 6100-61FF  sector buffer in the image (zeroed; BLK_BUF at runtime)
-6200-EFFF  arena pages for programs and pipes (pages 62h-0EFh)
+6200-BEFF  arena pages for programs and pipes (pages 62h-0BEh)
+BF00-C3FF  console history rings (5 pages, owner FEh); task names at C308h
+C400-D2FF  arena pages for programs and pipes (pages 0C4h-0D2h)
+D300-DFFF  /sys/ser (13 pages)
+E000-EFFF  /sys/dev (16 pages), with the serial state record at its top
 F000-F0FF  copy of /sys/keymap (keyboard tables and Latin-1 glyphs)
 F100-F4FF  console 1 shadow screen and other fixed RAM below KPAGE
 F500-FFFF  KPAGE (page owners, task records, open files) and /sys/wr
@@ -98,11 +102,13 @@ the full 16-bit start.
 
 ### Arena
 
-All dynamic memory comes from arena pages `62h` through `0EFh`. A page owner
+All dynamic memory comes from two arena runs: pages `62h` through `0BEh` (93
+pages) and `0C4h` through `0D2h` (15 pages), 108 pages in all. A page owner
 table at `KPAGE` records `00h` free, `FFh` kernel, or the owning task id, so
-everything a task owned is freed when it exits. Pages from `F000h` upward hold
-`/sys/keymap`, the second console shadow, kernel RAM and `/sys/wr`. Programs
-and pipes never use those pages.
+everything a task owned is freed when it exits. Pages `0BFh`-`0C3h` hold the
+console history and task names, `0D3h`-`0EFh` hold `/sys/ser` and `/sys/dev`,
+and pages from `F000h` upward hold `/sys/keymap`, the second console shadow,
+kernel RAM and `/sys/wr`. Programs and pipes never use those pages.
 
 - Programs and their stacks are allocated from the bottom up, first fit.
 - Pipes take one arena page each from the same pool.
@@ -111,6 +117,11 @@ and pipes never use those pages.
 At mount the kernel copies `/sys/keymap` to `F000h` and `/sys/wr` to `F800h`.
 The banner prints only after both files load, so keys typed at the banner use
 the same map as the shell.
+
+The task-name table `TASK_NAMES` at `C308h` takes 8 bytes for each task slot:
+the basename of the spawned program without its extension, 7 characters and a
+NUL. It sits in the history pages after the two consoles' rings, and boot does
+not clear it. The `/sys/dev` gate fills it on spawn, and `taskinfo` reads it.
 
 ## 4. Tasks and scheduling
 
@@ -129,7 +140,7 @@ the same map as the shell.
   192 bytes for the kernel and interrupt frames on top of its own needs. The
   loader adds this automatically.
 
-Per-slot state lives in the system page and `KPAGE`:
+Per-slot state lives in the system page, `KPAGE` and the history RAM:
 
 | Location | Size | Meaning |
 |----------|------|---------|
@@ -138,6 +149,7 @@ Per-slot state lives in the system page and `KPAGE`:
 | `T_PARENT` | 1 per slot | Parent task id |
 | `T_ARG` | 2 per slot | Exit code in the low byte when zombie |
 | `T_LIVE` record | 16 bytes | Saved `SP`, arena base, page count, cwd, fd table |
+| `TASK_NAMES` | 8 bytes | Program name for `taskinfo` (history RAM, `C308h`) |
 
 Open files and pipe metadata sit in `KPAGE` outside the disk image.
 
@@ -149,7 +161,8 @@ environment and file descriptors, and makes it ready, like `posix_spawn`. The
 CP-500 keyboard has no `|` key, so the shell runs pipelines as `a ! b` with
 two spawns and a pipe (`a`'s stdout and `b`'s stdin on the pipe ends). Each side
 uses the same spawn rules as a foreground line (bare words from `/bin/`). The
-`?` prefix spawns a background child the same way, without waiting.
+`?` prefix spawns a background child the same way, without waiting. The shell
+prints `ok <id>` with the child's task id.
 
 ### Break
 
@@ -310,8 +323,9 @@ Process:
 | `03h` | getpid | | `HL` task id |
 | `04h` | yield | | |
 | `05h` | sleep | `DE` ticks | |
-| `06h` | kill | `DE` task id | |
+| `06h` | kill | `DE` task id | `EBUSY` for a child of init |
 | `07h` | uptime | `DE` pointer to 4 bytes | tick count since boot |
+| `58h` | taskinfo | `DE` task id (0-7), `HL` pointer to a 16-byte record | record written at `HL` |
 
 Memory:
 
@@ -351,15 +365,17 @@ Time:
 | `40h` | time | `DE` pointer to 4 bytes | Seconds since 1980-01-01 00:00 local time |
 | `41h` | settime | `DE` pointer to 4 bytes | |
 
-`50h-5Fh` are reserved for sockets (section 9).
+`50h-57h` are the socket calls (section 9). `58h` is `taskinfo`, and `59h-5Fh`
+are reserved.
 
 Limits: 8 descriptors per task, 16 open files system-wide, 4 pipes of 256 bytes
 each, paths up to 127 bytes.
 
 ### Implemented calls
 
-The kernel implements every call in the table above except the reserved socket
-range `50h-5Fh`. The bodies of `sleep`, `uptime`, `alloc`, `free`, `meminfo`,
+The kernel implements every call in the table above except `taskinfo`, which
+the `/sys/dev` gate handles. The socket calls `50h-57h` are also in `/sys/dev`
+(section 9). The bodies of `sleep`, `uptime`, `alloc`, `free`, `meminfo`,
 and `dup2` live in `/sys/ser`; `sc_table` jumps to `DEV_SLEEP`, `DEV_UPTIME`,
 `DEV_ALLOC`, `DEV_FREE`, `DEV_MEMINFO`, and `DEV_DUP2`.
 
@@ -391,6 +407,24 @@ slot it returns `EAGAIN`. A pending or running child does not make the next
 reaps one zombie without blocking and returns `ECHILD` when none are ready.
 A specific child id waits only for that task. The result is
 `HL = (task_id << 8) | exit_code`.
+
+`kill` (`06h`) ends the task with exit code `FFh`. The console shells and
+`/etc/rc` are children of init, so `kill` returns `EBUSY` for them. Ending
+task 1 would halt the machine.
+
+`taskinfo` (`58h`) writes the 16-byte record for task `DE` (0-7) at `HL`. A
+free slot succeeds with state 0, and an id above 7 is `EINVAL`. The layout is:
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0 | 1 | State: `TS_*` (free, ready, blocked, dying, zombie) |
+| 1 | 1 | Parent task id, `FFh` for an orphan |
+| 2 | 1 | Wait channel: `CH_*`, with pipe `n` as `CH_PIPE + n` |
+| 3 | 1 | Base page |
+| 4 | 1 | Page count |
+| 5 | 1 | Console 0 or 1, `FFh` for none |
+| 6-7 | 2 | Reserved |
+| 8-15 | 8 | Name: basename of the spawned path without its extension, 7 characters and a NUL. Zeroes for task 0 |
 
 `open` for read of a file or a directory takes the lowest free descriptor.
 `read` of a directory is `EISDIR`. `readdir` of a file is `ENOTDIR`. `fstat`
@@ -950,7 +984,7 @@ details are still marked for verification against datasheets.
 | Serial | Model III RS-232 board (TR1602 UART, ports `E8h-EBh`), interrupt driven | `/dev/ser0`, terminal program, serial console |
 | Modem bridge | Hayes-compatible "Wi-Fi modem" on the serial port: `ATDT host:port` opens a TCP connection | Telnet and BBS access with no TCP/IP code in the OS |
 | Virtual hard disk | Radio Shack hard disk interface (WD1010 at `C0h-CFh`), as implemented by FreHD | `/dev/hd0`, partitions, battery-backed clock |
-| Network | WIZnet W5100 TCP/IP offload chip, indirect bus mode on 4 I/O ports | Socket system calls `50h-5Fh`: `socket`, `connect`, `listen`, `accept`, `send`, `recv`, `close`, `resolve` |
+| Network | WIZnet W5100 TCP/IP offload chip, indirect bus mode on 4 I/O ports | Socket system calls `50h-57h`: `socket`, `connect`, `listen`, `accept`, `send`, `recv`, `close`, `resolve` |
 
 TCP/IP is offloaded to the W5100 rather than run on the Z80: a software stack
 would cost 10-15 KiB and most of the CPU. The modem bridge comes first because

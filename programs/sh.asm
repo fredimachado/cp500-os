@@ -91,8 +91,14 @@ try_query:
 try_query_go:
                 call spawn_redir
                 jp c, show_err
+                ld a, l
+                push af
                 ld hl, ok_text
                 call write_str
+                pop af
+                call write_dec
+                ld a, 0Dh
+                call write_byte
                 jp shell
 
 run_path:
@@ -347,7 +353,7 @@ map_redir:      db 0, 1, 2, 0FFh, 0FFh, 0FFh, 0FFh, 0FFh
 pfd:            dw 0
 tid_a:          dw 0
 rhs:            dw 0
-ok_text:        db "ok", 0Dh, 0
+ok_text:        db "ok ", 0
 exit_text:      db "exit ", 0
 err_text:       db "ERR", 0
 
