@@ -55,12 +55,12 @@ public sealed class Milestone5Tests
             "--until-screen", "sh>", "--timeout", "20s",
             "--type", "{CLEAR}2", "--until-screen", "sh>",
             "--type", "/bin/hi{ENTER}", "--until-screen", "exit 3",
-            "--type", "{CLEAR}1", "--until-screen", "cp500-os",
+            "--type", "{CLEAR}1", "--until-screen", "CP-500 OS v1.0",
             "--dump-screen");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         string[] lines = Visible(run.Stdout);
-        Assert.Contains(lines, line => line == "cp500-os");
+        Assert.Contains(lines, line => line == "CP-500 OS v1.0");
         Assert.DoesNotContain(lines, line => line == "exit 3");
     }
 

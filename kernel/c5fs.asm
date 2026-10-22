@@ -1298,6 +1298,8 @@ load_dev:
                 ld hl, DEV_BASE
                 ld b, DEV_PAGES
                 call load_file
-                call nc, DEV_INIT
+                ret c
+                call DEV_INIT
+                xor a
                 ret
 dev_path:       db "/sys/dev", 0

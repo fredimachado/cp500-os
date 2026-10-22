@@ -16,6 +16,7 @@
                 jp SEEK_BODY
                 jp BOOT_BODY
                 jp vol_bind
+                jp banner_puts
 
                 assert DEV_SLEEP == DEV_BASE + 15
                 assert DEV_UPTIME == DEV_BASE + 18
@@ -26,6 +27,7 @@
                 assert DEV_SEEK == DEV_BASE + 33
                 assert DEV_INIT_BOOT == DEV_BASE + 36
                 assert VB_ENT == DEV_BASE + 39
+                assert DEV_BANNER == DEV_BASE + 42
 
                 assert DEV_INIT == DEV_BASE
                 assert DEV_V_OK == DEV_BASE + 3
@@ -633,6 +635,16 @@ rw_fail:
                 include "vol.asm"
                 include "hd.asm"
                 include "net.asm"
+
+banner_puts:
+                ld hl, banner_rest
+                jp console_puts
+
+banner_rest:
+                db "Copyright (c) 2026 Fredi Machado. All rights reserved.", 0Dh
+                db "https://github.com/fredimachado/cp500-os", 0Dh
+                db 0
+
                 assert $ < DEV_BASE + 3840
                 assert $ <= SER_REC
                 org SER_REC

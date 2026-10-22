@@ -60,7 +60,7 @@ public sealed class ShellTests
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", Product(),
-            "--until-screen", "cp500-os", "--timeout", "10s",
+            "--until-screen", "CP-500 OS v1.0", "--timeout", "10s",
             "--run", "600ms",
             "--dump-screen");
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
@@ -123,7 +123,14 @@ public sealed class ShellTests
     [Fact]
     public async Task CopiedMultiBlockProgramRuns()
     {
-        RunResult run = await TypeAsync("/bin/cp /bin/date /tmp/d{ENTER}/tmp/d{ENTER}", ":");
+        // Do not until-screen on ":" - the banner URL already contains "https:".
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", Product(),
+            "--until-screen", "sh>", "--timeout", "20s",
+            "--type", "/bin/cp /bin/date /tmp/d{ENTER}/tmp/d{ENTER}",
+            "--run", "10s",
+            "--dump-screen");
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         string[] lines = Visible(run.Stdout);
         Assert.Contains(lines, line => line.Length == 19 && line[4] == '-' && line[13] == ':');
         Assert.DoesNotContain(lines, line => line.StartsWith("exit ", StringComparison.Ordinal));

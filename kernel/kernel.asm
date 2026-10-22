@@ -34,8 +34,11 @@ km_sides:
                 call nc, mt_apply
                 push af
                 call nc, load_sys
+                push af
                 ld hl, banner
                 call console_puts
+                pop af
+                call nc, DEV_BANNER
                 xor a
                 ld (CUR_PHASE), a
                 ld (BLINK_DIV), a
@@ -54,7 +57,7 @@ km_mount:
 banner:
                 db 1Bh, "[2J"
                 db 1Bh, "[H"
-                db "cp500-os", 0Dh
+                db "CP-500 OS v1.0", 0Dh
                 db 0
 
                 include "sys.asm"

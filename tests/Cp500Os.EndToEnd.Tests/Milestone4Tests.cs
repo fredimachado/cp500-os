@@ -14,7 +14,7 @@ public sealed class Milestone4Tests : IDisposable
     {
         RunResult run = await Boot("sh>");
         Assert.Contains(Visible(run.Stdout), line => line == "sh>");
-        Assert.Contains(Visible(run.Stdout), line => line == "cp500-os");
+        Assert.Contains(Visible(run.Stdout), line => line == "CP-500 OS v1.0");
     }
 
     [Fact]

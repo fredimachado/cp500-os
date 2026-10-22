@@ -511,6 +511,7 @@ DEV_DUP2            equ DEV_BASE + 30
 DEV_SEEK            equ DEV_BASE + 33
 DEV_INIT_BOOT       equ DEV_BASE + 36
 VB_ENT              equ DEV_BASE + 39
+DEV_BANNER          equ DEV_BASE + 42
 ; Fixed tails of /sys/ser. Each one jumps to the body. The bodies sit
 ; under this table, so editing a body does not move the address dev calls.
 SC_SLEEP            equ 0E0EDh
