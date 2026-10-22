@@ -10,7 +10,7 @@
                 db 'x', 'y', 'z', 0, 0, 0, 0, 0
                 db '0', '1', '2', '3', '4', '5', '6', '7'
                 db '8', '9', ':', ';', ',', '-', '.', '/'
-                db 0Dh, K_CLEAR, K_BREAK, '[', K_DOWN, K_LEFT, K_RIGHT, ' '
+                db 0Dh, K_CLEAR, K_BREAK, K_UP, K_DOWN, K_LEFT, K_RIGHT, ' '
                 db 0, 0, 0, 0, 0, 0, 0, 0
 
                 assert $ == KBD_SHIFTED
@@ -20,7 +20,7 @@
                 db 'X', 'Y', 'Z', 0, 0, 0, 0, 0
                 db 0, '!', '"', '#', '$', '%', '&', "'"
                 db '(', ')', '*', '+', '<', '=', '>', '?'
-                db 0Dh, K_CLEAR, K_BREAK, 0, K_DOWN, K_LEFT, K_RIGHT, ' '
+                db 0Dh, K_CLEAR, K_BREAK, K_UP, K_DOWN, K_LEFT, K_RIGHT, ' '
                 db 0, 0, 0, 0, 0, 0, 0, 0
 
                 assert $ == ACUTE_FROM

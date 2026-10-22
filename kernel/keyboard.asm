@@ -236,10 +236,9 @@ kbd_break:
                 ret
 
 kbd_arrow:
-                dec a
                 ld e, a
                 ld d, 0
-                ld hl, kbd_arrow_final
+                ld hl, kbd_arrow_final - 1
                 add hl, de
                 ld a, (hl)
                 push af
@@ -326,4 +325,4 @@ kbd_get:
                 kvar kbd_fresh, 8
 
 kbd_arrow_final:
-                db 'B', 'D', 'C'
+                db 'A', 'B', 'D', 'C'

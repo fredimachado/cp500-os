@@ -192,8 +192,9 @@ state is `401Bh`-`401Dh`. Raw samples are `401Eh`-`4025h`. Debounced rows are
 Row `n` is the byte at `3800h` with address bit `n` set (`3801h` is `@` and
 A-G). Unshifted letters are lowercase, so a typed `Hi` is `Hi`. SHIFT is row 7
 bit 0 and changes the glyph. ENTER is `0Dh` and moves to column 0 of the next
-row. BREAK, CLEAR and SHIFT alone are dropped. UP is the `[` key. DOWN, LEFT
-and RIGHT are delivered as `ESC [ B`, `ESC [ D` and `ESC [ C`. Bytes from
+row. BREAK, CLEAR and SHIFT alone are dropped. UP, DOWN, LEFT and RIGHT are
+delivered as `ESC [ A`, `ESC [ B`, `ESC [ D` and `ESC [ C`, so the keyboard has
+no `[`. Bytes from
 `C0h` through `FFh` map to video codes through the `LAT1_GLYPH` table in
 `/sys/keymap`. A `--type` hold is about three ticks, so it cannot reach the
 repeat delay.

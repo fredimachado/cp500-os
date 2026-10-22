@@ -89,11 +89,12 @@ ANSI_GROUND         equ 0
 ANSI_ESC            equ 1
 ANSI_CSI            equ 2
 CURSOR_BLOCK        equ 0BFh
-K_DOWN              equ 1               ; keyboard table only, never a ring byte
-K_LEFT              equ 2
-K_RIGHT             equ 3
-K_BREAK             equ 4
-K_CLEAR             equ 5
+K_UP                equ 1               ; keyboard table only, never a ring byte
+K_DOWN              equ 2
+K_LEFT              equ 3
+K_RIGHT             equ 4
+K_BREAK             equ 5
+K_CLEAR             equ 6
 
 VOL                 equ 4062h
 VOL_SIZE            equ 10
