@@ -283,34 +283,8 @@ skip_str:
                 inc hl
                 jr skip_str
 
-parse_u16:
-                ld de, 0
-pu:
-                ld a, (hl)
-                cp '/'
-                jr z, pu_done
-                cp '0'
-                jp c, bad
-                cp '9' + 1
-                jp nc, bad
-                sub '0'
-                push hl
-                ld h, d
-                ld l, e
-                add hl, hl
-                add hl, hl
-                add hl, de
-                add hl, hl
-                ld e, a
-                ld d, 0
-                add hl, de
-                ex de, hl
-                pop hl
-                inc hl
-                jr pu
-pu_done:
-                or a
-                ret
+                include "num.inc"
+
 bad:
                 ld a, EINVAL
                 scf
