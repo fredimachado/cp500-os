@@ -60,7 +60,7 @@ public sealed class ShellTests
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", Product(),
-            "--until-screen", "CP-500 OS v1.0", "--timeout", "10s",
+            "--until-screen", "CP-500 OS v1.1", "--timeout", "10s",
             "--run", "600ms",
             "--dump-screen");
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);

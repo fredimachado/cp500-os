@@ -44,7 +44,7 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
-            "--until-screen", "CP-500 OS v1.0", "--timeout", "10s",
+            "--until-screen", "CP-500 OS v1.1", "--timeout", "10s",
             "--type", "Hi", "--until-screen", "Hi",
             "--dump-screen");
 
@@ -58,7 +58,7 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
-            "--until-screen", "CP-500 OS v1.0", "--timeout", "10s",
+            "--until-screen", "CP-500 OS v1.1", "--timeout", "10s",
             "--type", "{RIGHT}Z", "--until-screen", "Z",
             "--dump-screen");
 
@@ -71,7 +71,7 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
-            "--until-screen", "CP-500 OS v1.0", "--timeout", "10s",
+            "--until-screen", "CP-500 OS v1.1", "--timeout", "10s",
             "--type", "{BREAK}", "--dump-screen");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
@@ -144,7 +144,7 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", ProductImage(),
-            "--until-screen", "CP-500 OS v1.0", "--timeout", "10s",
+            "--until-screen", "CP-500 OS v1.1", "--timeout", "10s",
             "--run", duration, "--dump-memory", "4015:4");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
@@ -157,7 +157,7 @@ public sealed class Milestone2Tests : IDisposable
     {
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", rom, "--disk0", image,
-            "--until-screen", "CP-500 OS v1.0", "--timeout", timeout,
+            "--until-screen", "CP-500 OS v1.1", "--timeout", timeout,
             "--dump-screen");
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         return run;
@@ -166,7 +166,7 @@ public sealed class Milestone2Tests : IDisposable
     private static void AssertBanner(RunResult run)
     {
         string[] lines = run.Stdout.Split('\n');
-        Assert.Contains(lines, static line => line == "CP-500 OS v1.0");
+        Assert.Contains(lines, static line => line == "CP-500 OS v1.1");
         Assert.DoesNotContain(lines, static line => line.Contains("XX", StringComparison.Ordinal));
     }
 

@@ -57,7 +57,7 @@ km_mount:
 banner:
                 db 1Bh, "[2J"
                 db 1Bh, "[H"
-                db "CP-500 OS v1.0", 0Dh
+                db "CP-500 OS v1.1", 0Dh
                 db 0
 
                 include "sys.asm"

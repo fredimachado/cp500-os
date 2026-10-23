@@ -34,7 +34,7 @@ public sealed class Milestone3Tests : IDisposable
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         string[] lines = Visible(run.Stdout);
-        Assert.Contains(lines, line => line == "CP-500 OS v1.0");
+        Assert.Contains(lines, line => line == "CP-500 OS v1.1");
         Assert.Contains(lines, line => line == "sh>");
         Assert.Equal(shell.RelocateTo(0x62), run.DumpedMemory());
     }
@@ -138,12 +138,12 @@ public sealed class Milestone3Tests : IDisposable
 
         RunResult run = await HeadlessRunner.RunAsync(
             "--rom", Roms.Stub, "--disk0", image,
-            "--until-screen", "CP-500 OS v1.0", "--timeout", "15s",
+            "--until-screen", "CP-500 OS v1.1", "--timeout", "15s",
             "--dump-screen");
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         string[] lines = Visible(run.Stdout);
-        Assert.Contains(lines, line => line == "CP-500 OS v1.0");
+        Assert.Contains(lines, line => line == "CP-500 OS v1.1");
         Assert.DoesNotContain(lines, line => line == "sh>");
         Assert.DoesNotContain(lines, line => line == "M");
     }
