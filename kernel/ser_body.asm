@@ -691,8 +691,8 @@ mask_out:
                 ld a, IRQ_TIMER
                 ld b, a
                 ld a, (SER + S_PHASE)
-                cp PH_OPEN
-                jr nz, mo_tx
+                cp PH_CLOSED
+                jr z, mo_tx
                 ld a, b
                 or IRQ_SER_RX
                 ld b, a
@@ -733,8 +733,8 @@ ctl_out:
                 ld b, a
 co_dtr:
                 ld a, (SER + S_PHASE)
-                cp PH_OPEN
-                jr nz, co_brk
+                cp PH_CLOSED
+                jr z, co_brk
                 ld a, (SER + S_LINE)
                 bit 1, a
                 jr nz, co_brk

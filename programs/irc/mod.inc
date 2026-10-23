@@ -15,7 +15,6 @@ MODP_ERR         equ 2
 
 MOD_OK_TICKS     equ 90                 ; 3 s for the modem to answer ATE0V1
 MOD_DIAL_TICKS   equ 1800               ; 60 s of silence while dialling
-MOD_GUARD_TICKS  equ 45                 ; 1.5 s quiet around +++ (Hayes wants 1 s)
 
 ; HL = host:port. Opens /dev/ser0, resets the modem, dials and waits for the
 ; result code. Carry on failure: A = error, HL = message or 0.
@@ -480,31 +479,12 @@ mod_kick:
                 xor a
                 ret
 
-; Closing the port does not hang up: the modem keeps the call (and a
-; dead TCP link) until it is told. Online, use the Hayes escape and ATH
-; before the close; the drain lets the replies reach the ring first.
+; Close the serial port; the kernel linger window keeps RTS up and then
+; drops DTR so the Hayes bridge hangs up (&D2) without an escape sequence.
 mod_close:
                 ld a, (tr_rfd)
                 cp 0FFh
                 ret z
-                ld a, (mod_phase)
-                cp MOD_ONLINE
-                jr nz, mc_close
-                ld de, MOD_GUARD_TICKS
-                call mc_sleep
-                ld hl, mod_esc
-                ld ix, 3
-                call mod_fd_de
-                ld c, SYS_WRITE
-                rst 08h
-                ld de, MOD_GUARD_TICKS
-                call mc_sleep
-                ld hl, mod_hup
-                ld bc, 5
-                call mod_write
-                ld de, 3
-                call mc_sleep
-mc_close:
                 ld a, (tr_rfd)
                 ld e, a
                 ld d, 0
@@ -512,11 +492,6 @@ mc_close:
                 rst 08h
                 ld a, 0FFh
                 ld (tr_rfd), a
-                ret
-
-mc_sleep:
-                ld c, SYS_SLEEP
-                rst 08h
                 ret
 
 tr_run:
@@ -602,8 +577,6 @@ ll_dead:
 mod_ser_path:   db "/dev/ser0", 0
 mod_ate:        db "ATE0V1", 0Dh
 mod_ate_len:    equ $ - mod_ate
-mod_esc:        db "+++"
-mod_hup:        db 0Dh, "ATH0"
 mod_ok:         db "OK", 0
 mod_atdt:       db "ATDT", 0
 mod_conn:       db "CONNECT"
