@@ -17,10 +17,13 @@ internal sealed class LocalIrcServer : IAsyncDisposable
     private readonly ConcurrentQueue<string> _fromClient = new();
     private readonly TaskCompletionSource _registered = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _quit = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly bool _ctcpVersion;
     private Task? _run;
 
     public int Port { get; private set; }
     public IReadOnlyCollection<string> ClientLines => _fromClient.ToArray();
+
+    public LocalIrcServer(bool ctcpVersion = false) => _ctcpVersion = ctcpVersion;
 
     public void Start()
     {
@@ -110,6 +113,8 @@ internal sealed class LocalIrcServer : IAsyncDisposable
                 {
                     _registered.TrySetResult();
                     await SendAsync(stream, $":irc.test 001 {nick} :Welcome to the test net", cancel);
+                    if (_ctcpVersion)
+                        await SendAsync(stream, $":bob!b@h PRIVMSG {nick} :\u0001VERSION\u0001", cancel);
                 }
             }
         }

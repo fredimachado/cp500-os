@@ -598,6 +598,7 @@ f_users:        db "*** Users: ", F_LAST, 0
 f_mode:         db "*** mode change", 0
 f_disc:         db "*** Disconnected", 0
 f_wfail:        db "*** write failed", 0
+f_ctcp:         db "*** CTCP ", F_ARG, " from ", F_NICK, 0
 f_numeric:      db F_CMD, " ", F_LAST, 0
 
 srv_tab:
@@ -901,9 +902,12 @@ ctcp_split:
                 inc hl
                 ld (ctcp_ptr), hl
                 call ctcp_word
+                ; HL = ctcp_cmd. Note on the server window, then look up a handler.
+                push hl
+                call ctcp_note
+                pop hl
                 ld c, 2
-                ld hl, ctcp_tab
-                ex de, hl
+                ld de, ctcp_tab
                 call lookup
                 jr c, ctcp_plain
                 ld bc, ctcp_done
@@ -915,6 +919,13 @@ ctcp_done:
 ctcp_plain:
                 xor a
                 ret
+
+; HL = ctcp command name (e.g. VERSION). Prints on window 0.
+ctcp_note:
+                ld (fmt_arg), hl
+                xor a
+                ld hl, f_ctcp
+                jp say
 
 t_action:
                 ld hl, (ctcp_ptr)
@@ -931,6 +942,8 @@ t_version:
                 ret
 
 t_ping:
+                ld hl, (ctcp_ptr)
+                ld (fmt_arg), hl
                 ld hl, w_ctcp_ping
                 call wire
                 ret

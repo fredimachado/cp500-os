@@ -70,14 +70,33 @@ mo_atdt_cp:
 mo_host_cp:
                 ld hl, (mod_host)
                 ld b, 64
+                ld c, 0
 mo_host_cp1:
+                ld a, (hl)
+                or a
+                jr z, mo_host_done
+                cp ':'
+                jr nz, mo_host_ch
+                ld c, 1
+mo_host_ch:
+                ld (de), a
+                inc hl
+                inc de
+                djnz mo_host_cp1
+mo_host_done:
+                ; Hayes needs host:port; IRC defaults to 6667 when omitted.
+                ld a, c
+                or a
+                jr nz, mo_dial_cr
+                ld hl, mo_defport
+mo_port_cp:
                 ld a, (hl)
                 or a
                 jr z, mo_dial_cr
                 ld (de), a
                 inc hl
                 inc de
-                djnz mo_host_cp1
+                jr mo_port_cp
 mo_dial_cr:
                 ld a, 0Dh
                 ld (de), a
@@ -579,6 +598,7 @@ mod_ate:        db "ATE0V1", 0Dh
 mod_ate_len:    equ $ - mod_ate
 mod_ok:         db "OK", 0
 mod_atdt:       db "ATDT", 0
+mo_defport:     db ":6667", 0
 mod_conn:       db "CONNECT"
 mod_nc:         db "NO CARRIER", 0
 mod_na:         db "NO ANSWER", 0

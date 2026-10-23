@@ -61,13 +61,14 @@ public sealed class IrcTests : IDisposable
         Assert.Contains(lines, l => l.StartsWith("  aa", StringComparison.Ordinal));
         Assert.Contains(lines, l => l.Contains("caf") && l.Contains("and"));
         Assert.Contains(lines, l => l.Contains("act:"));
-        Assert.Contains(lines, l => l.Contains("* fredi__ waves") || l.Contains("*irc.example*"));
+        Assert.Contains(lines, l => l.Contains("* irc.example waves", StringComparison.Ordinal));
         Assert.Contains(lines, l => l.Contains("sh>"));
 
         string transcript = Encoding.ASCII.GetString(Volume.Open(File.ReadAllBytes(image)).ReadFile("/home/t.out"));
         Assert.Contains("NICK fredi", transcript);
         Assert.Contains("NICK fredi_", transcript);
         Assert.Contains("PONG :keepalive", transcript);
+        Assert.Contains("NOTICE irc.example :\u0001VERSION CP500-IRC", transcript);
         Assert.Contains("QUIT :", transcript);
     }
 
@@ -98,6 +99,40 @@ public sealed class IrcTests : IDisposable
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         Assert.DoesNotContain(Visible(run.Stdout), l => l.Contains("exit 68", StringComparison.Ordinal));
         Assert.Contains(server.ClientLines, l => l.Contains("PRIVMSG #lobby :ok", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// CTCP VERSION must NOTICE the requester; a bad ctcp_split lookup used to
+    /// leave the query as a plain privmsg and send nothing back.
+    /// </summary>
+    [Fact]
+    public async Task ModemRepliesToCtcpVersion()
+    {
+        await using LocalIrcServer server = new(ctcpVersion: true);
+        server.Start();
+        int hayesPort = FreeTcpPort();
+        using CancellationTokenSource cancel = new(TimeSpan.FromSeconds(60));
+
+        string image = CopyImage();
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", image, "--timeout", "30s",
+            "--rs232", $"hayes:{hayesPort}",
+            "--until-screen", "sh>",
+            "--type", $"/bin/irc carol 127.0.0.1:{server.Port}{{ENTER}}",
+            "--until-screen", "Welcome to the test net",
+            "--run", "2s",
+            "--type", "/quit{ENTER}",
+            "--until-screen", "sh>",
+            "--dump-screen");
+
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        await server.WaitRegisteredAsync(cancel.Token);
+        string? version = server.ClientLines.FirstOrDefault(l =>
+            l.StartsWith("NOTICE bob :", StringComparison.Ordinal) &&
+            l.Contains('\u0001') &&
+            l.Contains("VERSION", StringComparison.Ordinal));
+        Assert.False(string.IsNullOrEmpty(version), string.Join('\n', server.ClientLines));
+        Assert.Contains("CP500-IRC", version!, StringComparison.Ordinal);
     }
 
     /// <summary>

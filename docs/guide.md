@@ -626,7 +626,7 @@ command prints the error name and exits with its code.
 | `telnet` | `telnet a.b.c.d [port]` | Raw TCP session over the W5100, port 23 by default. Dotted IPv4 only |
 | `get` | `get http://a.b.c.d[:port]/path [outfile]` | HTTP/1.0 GET. Only status 200 is accepted. The body goes to stdout or the file |
 | `timesync` | `timesync [a.b.c.d]` | Reads RFC 868 time from TCP port 37 (default host `10.0.2.2`) and sets the clock |
-| `irc` | `irc nick host:port` / `irc -r replay out nick` | IRC client, see below |
+| `irc` | `irc nick host[:port] [channel]` / `irc -r replay out nick` | IRC client, see below |
 | `hi` | `hi` | Milestone 3 self-test. Prints sample results and exits 3 |
 
 ### The IRC client
@@ -640,9 +640,10 @@ and VERSION, and these commands:
 /join /part /msg /query /me /nick /names /whois /quote /win /clear /help /quit
 ```
 
-Live mode dials `host:port` through the Hayes modem on `/dev/ser0`. Replay
-mode (`-r`) reads server lines from a file and writes what the client would
-send to another file. Tests use it, and `/home/irc-demo` is a sample session:
+Live mode dials `host:port` through the Hayes modem on `/dev/ser0`. If the
+port is omitted, the client dials `6667`. Replay mode (`-r`) reads server
+lines from a file and writes what the client would send to another file.
+Tests use it, and `/home/irc-demo` is a sample session:
 
 ```text
 sh>irc -r /home/irc-demo /tmp/out fredi
