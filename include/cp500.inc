@@ -585,6 +585,8 @@ SER_ST_PE_BIT       equ 3
 SER_ST_DR           equ 1 << SER_ST_DR_BIT
 SER_ST_THRE         equ 1 << SER_ST_THRE_BIT
 
+SER_CTL_LOAD        equ 02h
+
 SER_CT_DTR          equ 01h
 SER_CT_RTS          equ 02h
 SER_CT_BREAK        equ 04h

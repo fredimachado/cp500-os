@@ -53,17 +53,30 @@ sm_fill:
                 ld a, l
                 cp 15
                 jp nz, exit_bad
-                ld a, (ser_fd)
-                ld e, a
-                ld d, 0
-                ld hl, bad_baud
-                ld ix, cfg
-                ld (ix), 10h
-                ld c, SYS_IOCTL
-                rst 08h
-                jp nc, exit_bad
-                cp EINVAL
-                jp nz, exit_a
+                call load_def_cfg
+                ld a, 10h
+                ld (cfg + CFG_BAUD), a
+                call expect_setcfg_einval
+                call load_def_cfg
+                ld a, 9
+                ld (cfg + CFG_DATA), a
+                call expect_setcfg_einval
+                call load_def_cfg
+                ld a, 3
+                ld (cfg + CFG_PARITY), a
+                call expect_setcfg_einval
+                call load_def_cfg
+                ld a, 3
+                ld (cfg + CFG_STOP), a
+                call expect_setcfg_einval
+                call load_def_cfg
+                ld a, 4
+                ld (cfg + CFG_FLAGS), a
+                call expect_setcfg_einval
+                call load_def_cfg
+                ld a, 1
+                ld (cfg + CFG_RESERVED), a
+                call expect_setcfg_einval
                 ld c, SYS_IOCTL
                 ld hl, SER_STATS
                 ld ix, stats
@@ -110,6 +123,26 @@ exit_a:
                 ld d, 0
                 ld c, SYS_EXIT
                 rst 08h
+
+load_def_cfg:
+                ld hl, def_baud
+                ld de, cfg
+                ld bc, 6
+                ldir
+                ret
+
+expect_setcfg_einval:
+                ld a, (ser_fd)
+                ld e, a
+                ld d, 0
+                ld hl, SER_SETCFG
+                ld ix, cfg
+                ld c, SYS_IOCTL
+                rst 08h
+                jp nc, exit_bad
+                cp EINVAL
+                jp nz, exit_a
+                ret
 
 check_defaults:
                 ld hl, def_baud
@@ -161,4 +194,3 @@ cfg:            ds 6, 0
 stats:          ds 8, 0
 break2:         dw 2
 def_baud:       db 0Eh, 8, 0, 1, CFG_F_RTSCTS, 0
-bad_baud:       db 0
