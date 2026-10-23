@@ -754,8 +754,9 @@ co_brk:
                 ld a, (SER + S_BRK)
                 or a
                 jr z, co_out
+                ; Bit 2 is active-low: clear it to hold TX in break.
                 ld a, b
-                or SER_CT_BREAK
+                and 0FFh - SER_CT_BREAK
                 ld b, a
 co_out:
                 ld a, SER_CTL_LOAD
@@ -850,6 +851,8 @@ cb_none:
                 ld c, a
 cb_done:
                 ld a, c
+                ; Bit 2 is active-low: set it so break is off (matches ResetControl 6Ch).
+                or SER_CT_BREAK
                 ret
 
 lines_now:

@@ -1001,7 +1001,7 @@ against the datasheets and heh8080 before the driver depends on them.
 |------|----|-----|
 | `E8h` | Modem status: bit 7 CTS, 6 DSR, 5 DCD, 4 RI | OUT bit 1 enables loading the UART control register at `EAh`; other OUT bits are not documented here |
 | `E9h` | Board configuration switches | Baud rate: bits 0-3 receive, bits 4-7 transmit |
-| `EAh` | UART status: bit 7 data received, 6 transmit holding register empty, 5 overrun, 4 framing error, 3 parity error | UART control: bit 0 DTR, 1 RTS, 2 break, 3 parity inhibit, 4 stop bits, 5-6 word length, 7 even parity |
+| `EAh` | UART status: bit 7 data received, 6 transmit holding register empty, 5 overrun, 4 framing error, 3 parity error | UART control: bit 0 DTR, 1 RTS, 2 break (active-low: 0 asserts break / continuous space), 3 parity inhibit, 4 stop bits, 5-6 word length, 7 even parity |
 | `EBh` | Received byte; reading clears data received | Byte to transmit |
 
 `E0h` has three serial sources, with the timer's mask and active-low status
