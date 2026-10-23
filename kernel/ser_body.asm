@@ -78,8 +78,8 @@ so_flush:
                 ld bc, CFG_SIZE
                 ldir
                 ld hl, SER + S_STATS
-                ld b, STATS_SIZE
                 xor a
+                ld b, STATS_SIZE
 so_stat_z:
                 ld (hl), a
                 inc hl
@@ -418,17 +418,11 @@ si_stats:
                 ldir
                 ld hl, SER + S_STATS
                 xor a
-                ld bc, STATS_SIZE
-                ld (hl), a
-                inc hl
-                dec bc
+                ld b, STATS_SIZE
 si_stz:
                 ld (hl), a
                 inc hl
-                dec bc
-                ld a, b
-                or c
-                jr nz, si_stz
+                djnz si_stz
                 ei
                 xor a
                 ld hl, 0
@@ -764,6 +758,8 @@ co_brk:
                 or SER_CT_BREAK
                 ld b, a
 co_out:
+                ld a, SER_CTL_LOAD
+                out (PORT_SER_MODEM), a
                 ld a, b
                 out (PORT_SER_CTL), a
                 ret
@@ -792,25 +788,36 @@ cfg_apply:
                 ret
 
 cfg_check:
-                ld a, (ix + CFG_BAUD)
+                push ix
+                pop hl
+                ld a, (hl)
+                inc hl
                 cp 10h
-                ret nc
-                ld a, (ix + CFG_DATA)
+                jr nc, cfg_bad
+                ld a, (hl)
+                inc hl
                 cp 5
-                ret c
+                jr c, cfg_bad
                 cp 9
-                ret nc
-                ld a, (ix + CFG_PARITY)
+                jr nc, cfg_bad
+                ld a, (hl)
+                inc hl
                 cp 3
-                ret nc
-                ld a, (ix + CFG_STOP)
+                jr nc, cfg_bad
+                ld a, (hl)
+                inc hl
                 dec a
                 cp 2
-                ret nc
-                ld a, (ix + CFG_FLAGS)
-                and ~(CFG_F_RTSCTS | CFG_F_DCD)
-                ret nz
-                ld a, (ix + CFG_RESERVED)
+                jr nc, cfg_bad
+                ld a, (hl)
+                inc hl
+                and 0FCh
+                jr nz, cfg_bad
+                ld a, (hl)
+                or a
+                ret z
+cfg_bad:
+                scf
                 ret
 
 cfg_bits:
