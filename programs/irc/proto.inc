@@ -37,7 +37,8 @@ ns_end:
                 ld de, autojoin
                 ld bc, 23
                 ldir
-                ld (hl), a
+                xor a
+                ld (de), a
 ns_noch:
                 ld hl, whdr
                 ld de, whdr + 1
@@ -78,11 +79,12 @@ net_pump:
                 ld hl, rl_buf
                 ld a, (hl)
                 cp ':'
-                jr nz, np_z
-                call np_first_line
-                ld a, (np_hit)
-                or a
-                ret nz
+                jr z, np_boot_ok
+                ; Drop one Hayes line; do not wipe IRC that shared the read.
+                call np_drop_line
+                jr c, np_fill
+                jp net_pump
+np_boot_ok:
                 ld a, RL_READY
                 ld (rl_state), a
 np_have:
@@ -127,50 +129,53 @@ np_z:
                 xor a
                 ret
 
-np_first_line:
+; Remove first CR/LF-terminated line from rl_buf; keep any bytes after it.
+; Carry set: no CR/LF yet - caller should read more.
+np_drop_line:
                 ld hl, rl_buf
                 ld bc, (rl_len)
-nfl_scan:
+ndl_scan:
                 ld a, b
                 or c
+                scf
                 ret z
                 ld a, (hl)
                 cp 0Ah
-                jr z, nfl_cut
+                jr z, ndl_cut
                 cp 0Dh
-                jr z, nfl_cut
+                jr z, ndl_cut
                 inc hl
                 dec bc
-                jr nfl_scan
-nfl_cut:
-                ld (hl), 0
-                push hl
+                jr ndl_scan
+ndl_cut:
                 inc hl
+                dec bc
+                ld a, b
+                or c
+                jr z, ndl_clear
                 ld a, (hl)
                 cp 0Ah
-                jr nz, nfl_off
+                jr nz, ndl_move
                 inc hl
-nfl_off:
+                dec bc
+                ld a, b
+                or c
+                jr z, ndl_clear
+ndl_move:
+                push bc
                 ld de, rl_buf
+                ldir
+                pop bc
+                ld (rl_len), bc
                 or a
-                sbc hl, de
-                ld a, l
-                ld (tr_pos), a
-                pop hl
-                push hl
-                call line_dispatch
-                pop hl
-                xor a
-                ld (tr_state), a
+                ret
+ndl_clear:
                 xor a
                 ld hl, rl_len
                 ld (hl), a
                 inc hl
                 ld (hl), a
-                ld a, 1
-                ld (np_hit), a
-                ld a, RL_READY
-                ld (rl_state), a
+                or a
                 ret
 
 np_parse:
@@ -225,6 +230,16 @@ np_term:
                 ld a, b
                 or c
                 jr z, np_clear
+                ; CRLF: terminator was CR; drop the following LF.
+                ld a, (hl)
+                cp 0Ah
+                jr nz, np_rest
+                inc hl
+                dec bc
+                ld a, b
+                or c
+                jr z, np_clear
+np_rest:
                 push bc
                 ld de, rl_buf
                 ldir
@@ -492,15 +507,20 @@ net_quit:
                 jp tr_close
 
 wire:
+                push de
+                ld de, (fmt_arg)
                 push hl
                 ld hl, wire_byte
                 ld (fmt_sink), hl
-                pop hl
-                push hl
                 ld hl, sl_buf
                 ld (sl_ptr), hl
                 pop hl
                 call fmt_run
+                ; NUL-terminate: ws_len used to walk into the previous line
+                ; left in sl_buf (USER's " 0 * :CP-500" after a short JOIN).
+                ld hl, (sl_ptr)
+                ld (hl), 0
+                pop de
                 ld hl, sl_buf
                 ld de, sl_buf
                 ld bc, 0
@@ -526,12 +546,14 @@ ws_go:
                 scf
                 ret
 
+; Control bytes and DEL go out as '?', except 01h (the CTCP delimiter).
 wire_byte:
+                cp 01h
+                jr z, wb_ok
                 cp 20h
-                jr nc, wb_ok
+                jr c, wb_q
                 cp 7Fh
                 jr z, wb_q
-                ld a, '?'
 wb_ok:
                 ld hl, sl_ptr
                 ld e, (hl)
@@ -621,12 +643,6 @@ h_privmsg:
                 ret nz
                 call hj_channel
                 call win_for
-                push af
-                or a
-                jr z, hp_fmt
-                call win_show
-hp_fmt:
-                pop af
                 or a
                 jr nz, hp_chan
                 ld hl, (msg_par)
@@ -669,11 +685,6 @@ h_notice:
 
 h_join:
                 ld hl, (msg_par)
-                ld e, (hl)
-                inc hl
-                ld d, (hl)
-                push de
-                ld hl, de
 hj_z:
                 ld a, (hl)
                 or a
@@ -685,7 +696,7 @@ hj_z:
 hj_zterm:
                 ld (hl), 0
 hj_me:
-                pop hl
+                ld hl, msg_nick
                 call name_is_me
                 jr nz, hj_other
                 call hj_channel
@@ -695,12 +706,6 @@ hj_me:
 hj_other:
                 call hj_channel
                 call win_for
-                push af
-                or a
-                jr z, ho_say
-                call win_show
-ho_say:
-                pop af
                 ld hl, f_join
                 jp say
 
@@ -752,9 +757,10 @@ hj_chz_done:
                 ret
 
 h_part:
-                ld hl, (msg_par)
+                ld hl, msg_nick
                 call name_is_me
                 jr nz, hp_other
+                ld hl, (msg_par)
                 call win_release
                 ld a, 0
                 ld hl, f_part
@@ -786,7 +792,7 @@ h_quit:
                 jp say
 
 h_nick:
-                ld hl, (msg_par)
+                ld hl, msg_nick
                 call name_is_me
                 jr nz, hn_show
                 ld hl, (msg_par)
@@ -826,15 +832,13 @@ h_001:
                 ld hl, autojoin
                 ld a, (hl)
                 or a
-                jr z, h1_done
+                ret z
                 push hl
+                ld (fmt_arg), hl
                 ld hl, w_join
                 call wire
                 pop hl
                 ld (hl), 0
-h1_done:
-                ld a, 0
-                call win_show
                 ret
 
 h_433:
@@ -853,9 +857,7 @@ h_433:
                 call say
                 ld hl, w_nick_me
                 call wire
-                ld a, 0
-                call win_show
-                ret
+                jp paint_status
 h43_say:
                 ld a, 0
                 ld hl, f_numeric
@@ -971,9 +973,20 @@ append_us:
                 ret
 
 copy_nick:
-                ld bc, 31
-                ldir
-                ld (hl), a
+                ld b, 31
+cn_loop:
+                ld a, (hl)
+                or a
+                jr z, cn_end
+                cp ' '
+                jr z, cn_end
+                ld (de), a
+                inc hl
+                inc de
+                djnz cn_loop
+cn_end:
+                xor a
+                ld (de), a
                 ret
 
 ctcp_cmd:       ds 16, 0

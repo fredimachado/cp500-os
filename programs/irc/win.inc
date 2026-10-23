@@ -74,53 +74,37 @@ wf_next:
                 xor a
                 ret
 
+; HL = channel. A = its window and NC (found or claimed), carry when full.
 win_claim:
-                push hl
                 ld c, 1
 wc_try:
+                push hl
                 ld a, c
                 call whdr_ptr
-                push hl
-                pop de
+                ex de, hl
                 pop hl
-                push hl
-                push de
                 ld a, (de)
                 or a
                 jr z, wc_free
                 push bc
                 call name_eq
                 pop bc
-                jr nz, wc_next
-                pop de
-                pop hl
-                pop hl
-                ld a, c
-                or a
-                ret
-wc_next:
-                pop de
-                pop hl
+                jr z, wc_hit
                 inc c
                 ld a, c
                 cp 3
                 jr c, wc_try
-                pop hl
                 scf
                 ret
 wc_free:
-                pop de
-                pop hl
-                push hl
-                push de
-                ld a, c
-                push af
+                push bc
                 ld bc, 23
                 ldir
-                pop af
-                pop de
-                pop hl
-                pop hl
+                xor a
+                ld (de), a
+                pop bc
+wc_hit:
+                ld a, c
                 or a
                 ret
 
@@ -138,7 +122,9 @@ wr_try:
                 ld a, (de)
                 or a
                 jr z, wr_next
+                push bc
                 call name_eq
+                pop bc
                 jr nz, wr_next
                 pop de
                 pop hl
@@ -155,24 +141,23 @@ wr_out:
                 ret
 wr_next:
                 pop de
-                pop hl
                 inc b
                 ld a, b
                 cp 3
                 jr c, wr_try
+                pop hl
                 ret
 
 win_clear_hdr:
                 push af
                 ld a, b
                 call whdr_ptr
-                ld bc, W_SIZE
+                ld d, h
+                ld e, l
+                inc de
+                ld bc, W_SIZE - 1
                 xor a
                 ld (hl), a
-                inc hl
-                dec bc
-                jr wr_clr
-wr_clr:
                 ldir
                 pop af
                 ret
@@ -216,35 +201,36 @@ ws_done:
                 call paint_input
                 jp out_flush
 
+; B = screen row 0..13. W_VIEW counts rows scrolled up from the newest.
 ws_draw_row:
                 ld a, (cur_win)
                 call whdr_ptr
                 ld de, W_HEAD
                 add hl, de
-                ld a, (hl)
-                push af
-                ld a, (cur_win)
-                call whdr_ptr
-                ld de, W_COUNT
-                add hl, de
-                ld a, (hl)
-                ld d, a
+                ld c, (hl)
                 inc hl
-                ld a, (hl)
-                ld e, a
-                pop af
-                ld c, a
-                ld a, e
+                ld d, (hl)
+                inc hl
+                ld e, (hl)
+                ld a, d
+                sub 14
+                jr nc, ws_top
+                xor a
+ws_top:
+                sub e
+                jr nc, ws_row_ix
+                xor a
+ws_row_ix:
                 add a, b
                 cp d
                 ret nc
+                ld e, a
                 ld a, c
                 sub d
                 jr nc, ws_hc
                 add a, W_ROWS
 ws_hc:
                 add a, e
-                add a, b
 ws_mod:
                 cp W_ROWS
                 jr c, ws_slot
@@ -372,10 +358,8 @@ say:
                 ld a, (hl)
                 pop hl
                 or a
-                jr nz, say_more
-                ld a, (cur_win)
-                jp win_show
-say_more:
+                ret z
+                ; Scrolled up: keep the frozen view pinned.
                 push hl
                 ld de, W_COUNT
                 add hl, de
@@ -398,9 +382,6 @@ sm_ok:
                 pop af
                 ld (hl), a
                 pop hl
-                call paint_status
-                call paint_input
-                call out_flush
                 ret
 say_hidden:
                 ld a, b
@@ -413,9 +394,6 @@ say_hidden:
                 pop af
                 ld (hl), a
                 pop hl
-                call paint_status
-                call paint_input
-                call out_flush
                 ret
 
 say_byte:
@@ -584,7 +562,7 @@ say_commit:
                 inc hl
                 ld a, (say_col)
                 ld b, a
-                ld a, 64
+                ld a, 63
                 sub b
                 ld b, a
                 cp 64
@@ -618,23 +596,8 @@ sc_h:
 sc_cnt_done:
                 ld hl, say_rows
                 inc (hl)
-                ld a, (say_win)
-                ld b, a
-                ld a, (cur_win)
-                cp b
-                jr nz, sc_done
-                ld a, (say_win)
-                call whdr_ptr
-                push hl
-                ld de, W_VIEW
-                add hl, de
-                ld a, (hl)
-                pop hl
-                or a
-                jr nz, sc_done
-                ld b, 0
-                call ws_draw_row
-                call out_flush
+                ; Paint from live_loop/tr_run (win_show). Drawing here nests
+                ; under net_pump and blows the modem stack.
 sc_done:
                 ld a, (say_rows)
                 or a
@@ -684,6 +647,12 @@ commit_row:
                 add hl, de
                 ld (hl), a
                 ret
+
+; Status + input only. Safe from net_pump (win_show is too deep on modem).
+ui_refresh:
+                call paint_status
+                call paint_input
+                jp out_flush
 
 paint_status:
                 ld a, 14
@@ -854,21 +823,19 @@ paint_input:
                 call out_byte
                 ld hl, inp_buf
                 ld a, (inp_len)
-                ld b, a
-                ld a, 61
-                cp b
-                jr nc, pi_all
+                cp 62
+                jr c, pi_all
                 sub 61
-                ld c, a
-                add hl, bc
-                ld b, 61
+                ld e, a
+                ld d, 0
+                add hl, de
+                ld a, 61
 pi_all:
-                ld a, b
                 or a
                 ret z
                 ld c, a
-                call out_mem
-                ret
+                ld b, 0
+                jp out_mem
 
 key_read:
                 call out_flush
@@ -882,11 +849,13 @@ key_read:
                 ret
 
 out_byte:
+                push af
                 ld hl, (out_ptr)
                 ld de, out_buf + 512
                 or a
                 sbc hl, de
                 call z, out_flush
+                pop af
                 ld hl, (out_ptr)
                 ld (hl), a
                 inc hl

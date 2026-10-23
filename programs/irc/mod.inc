@@ -13,6 +13,12 @@ MODP_NONE        equ 0
 MODP_EOF         equ 1
 MODP_ERR         equ 2
 
+MOD_OK_TICKS     equ 90                 ; 3 s for the modem to answer ATE0V1
+MOD_DIAL_TICKS   equ 1800               ; 60 s of silence while dialling
+MOD_GUARD_TICKS  equ 45                 ; 1.5 s quiet around +++ (Hayes wants 1 s)
+
+; HL = host:port. Opens /dev/ser0, resets the modem, dials and waits for the
+; result code. Carry on failure: A = error, HL = message or 0.
 mod_open:
                 ld a, TR_KIND_MODEM
                 ld (tr_kind), a
@@ -21,136 +27,89 @@ mod_open:
                 ld (tr_wfd), a
                 ld (mod_host), hl
                 xor a
-                ld (mod_phase), a
                 ld (mod_line_len), a
-                ld (mod_line_over), a
                 ld (mod_pending), a
                 ld (mod_pending_err), a
                 ld c, SYS_OPEN
                 ld de, mod_ser_path
+                ; Kernel rejects open flags 0C0h (incl. 40h nonblock).
                 ld b, O_READ | O_WRITE
                 rst 08h
-                jp c, mo_sysfail
+                jp c, mo_fail
                 ld a, l
                 ld (tr_rfd), a
                 ld (live_pfd_ser), a
+                xor a
+                ld (live_pfd_con), a
                 ld a, POLLIN
                 ld (live_pfd_con + 1), a
                 ld (live_pfd_ser + 1), a
-                ld hl, mod_ate
-                ld bc, mod_ate_len
-                call mo_write
-                jp c, mo_iofail
                 ld a, MOD_WAIT_OK
                 ld (mod_phase), a
-mo_waitok:
-                ld hl, 90
-                call mo_poll1
-                jp c, mo_iofail
-                ld a, h
-                or l
-                jr nz, mo_wok_got
-                call mod_close
                 ld hl, mod_nomodem
-                ld a, EIO
-                scf
-                ret
-mo_wok_got:
-                call mo_read1
-                jp c, mo_iofail
-                ld a, h
-                or l
-                jr z, mo_waitok
-                ld a, (byte_buf)
-                call mo_feed
-                ld a, (mod_phase)
-                cp MOD_FAILED
-                jp z, mo_failret
-                cp MOD_COMMAND
-                jr nz, mo_waitok
+                ld (mod_failmsg), hl
+                ld hl, mod_ate
+                ld ix, mod_ate_len
+                call mod_fd_de
+                ld c, SYS_WRITE
+                rst 08h
+                jp c, mo_fail
+                ld hl, MOD_OK_TICKS
+                call mo_wait
+                jp c, mo_fail
+                ; One write: ATDT + host + CR into tr_chunk, then SYS_WRITE.
+                ld de, tr_chunk
                 ld hl, mod_atdt
-mo_atdt:
+mo_atdt_cp:
                 ld a, (hl)
                 or a
-                jr z, mo_atdt_done
-                push hl
-                ld a, (hl)
-                ld b, 1
-                call mo_wchr
-                pop hl
-                jp c, mo_iofail
+                jr z, mo_host_cp
+                ld (de), a
                 inc hl
-                jr mo_atdt
-mo_atdt_done:
+                inc de
+                jr mo_atdt_cp
+mo_host_cp:
                 ld hl, (mod_host)
-mo_dial:
+                ld b, 64
+mo_host_cp1:
                 ld a, (hl)
                 or a
                 jr z, mo_dial_cr
-                push hl
-                ld a, (hl)
-                ld b, 1
-                call mo_wchr
-                pop hl
-                jp c, mo_iofail
+                ld (de), a
                 inc hl
-                jr mo_dial
+                inc de
+                djnz mo_host_cp1
 mo_dial_cr:
                 ld a, 0Dh
-                ld b, 1
-                call mo_wchr
-                jp c, mo_iofail
+                ld (de), a
+                inc de
+                ld hl, tr_chunk
+                ex de, hl
+                or a
+                sbc hl, de
+                push de
+                push hl
+                pop ix
+                pop hl
                 ld a, MOD_WAIT_CONNECT
                 ld (mod_phase), a
-                xor a
-                ld (mod_line_len), a
-mo_waitconn:
-                ld hl, POLL_FOREVER
-                call mo_poll1
-                jp c, mo_iofail
-                call mo_read1
-                jp c, mo_iofail
-                ld a, h
-                or l
-                jr z, mo_waitconn
-                ld a, (byte_buf)
-                call mo_feed
-                ld a, (mod_phase)
-                cp MOD_FAILED
-                jp z, mo_failret
-                cp MOD_ONLINE
-                jr nz, mo_waitconn
-                push ix
-                call mo_online
-                pop ix
-                jp nc, mo_ok
-mo_iofail:
-                push af
-                call mod_close
-                pop af
-                ld hl, 0
-                scf
-                ret
-mo_sysfail:
-                ld hl, 0
-                scf
-                ret
-mo_ok:
-                or a
-                ret
-mo_failret:
-                ld hl, (mod_failmsg)
-                ld a, EIO
-                scf
-                ret
-
-mo_online:
+                ld hl, mod_na
+                ld (mod_failmsg), hl
+                ld hl, tr_chunk
+                call mod_fd_de
+                ld c, SYS_WRITE
+                rst 08h
+                jr c, mo_fail
+                ld hl, MOD_DIAL_TICKS
+                call mo_wait
+                jr c, mo_fail
+                ; Online: hold RTS/CTS and treat a DCD drop as hangup.
                 call mod_fd_de
                 ld hl, SER_GETCFG
                 ld ix, tr_chunk
                 ld c, SYS_IOCTL
                 rst 08h
-                ret c
+                jr c, mo_iofail
                 ld a, (tr_chunk + CFG_FLAGS)
                 or CFG_F_RTSCTS | CFG_F_DCD
                 ld (tr_chunk + CFG_FLAGS), a
@@ -159,38 +118,69 @@ mo_online:
                 ld hl, SER_SETCFG
                 ld c, SYS_IOCTL
                 rst 08h
+                ret nc
+mo_iofail:
+                ld hl, 0
+mo_fail:
+                push af
+                push hl
+                call mod_close
+                pop hl
+                pop af
+                scf
                 ret
 
-mo_write:
-                call mod_fd_de
-                ld c, SYS_WRITE
-                rst 08h
+; HL = ticks to wait for each byte. Feeds result-code bytes to mo_feed until
+; mod_phase leaves its wait state. Carry: A = error, HL = message or 0.
+mo_wait:
+                ld (mo_ptmo), hl
+mwt_next:
+                ld hl, (mo_ptmo)
+                call mo_poll1
+                ret c
+                ld a, h
+                or l
+                jr z, mwt_fail
+                call mo_read1
+                ret c
+                ld a, h
+                or l
+                jr z, mwt_next
+                ld a, (byte_buf)
+                call mo_feed
+                ld a, (mod_phase)
+                cp MOD_FAILED
+                jr z, mwt_fail
+                cp MOD_WAIT_OK
+                jr z, mwt_next
+                cp MOD_WAIT_CONNECT
+                jr z, mwt_next
+                or a
                 ret
-
-mo_wchr:
-                ld (byte_buf), a
-                ld hl, byte_buf
-                ld bc, 1
-                jp mo_write
+mwt_fail:
+                ld hl, (mod_failmsg)
+                ld a, EIO
+                scf
+                ret
 
 mo_poll1:
-                ld (mo_ptmo), hl
+                ld (mo_ptmo + 2), hl
                 ld a, (tr_rfd)
-                ld (mod_pollfd), a
+                ld (live_pfd_ser), a
                 ld a, POLLIN
-                ld (mod_pollfd + 1), a
+                ld (live_pfd_ser + 1), a
                 xor a
-                ld (mod_pollfd + 2), a
-                ld hl, (mo_ptmo)
+                ld (live_pfd_ser + 2), a
+                ld hl, (mo_ptmo + 2)
                 ld c, SYS_POLL
-                ld de, mod_pollfd
+                ld de, live_pfd_ser
                 ld b, 1
                 rst 08h
                 ret
-mo_ptmo:        dw 0
+mo_ptmo:        dw 0, 0
 
 mo_read1:
-                ld a, (mod_pollfd + 2)
+                ld a, (live_pfd_ser + 2)
                 and POLLIN
                 jr nz, mo_r1_do
                 xor a
@@ -211,44 +201,33 @@ mod_fd_de:
                 ld d, 0
                 ret
 
+; A = byte of a result code. Collects up to 10 characters per line in tr_chunk.
 mo_feed:
                 cp 0Dh
                 jr z, mo_line
                 cp 0Ah
                 jr z, mo_line
-                push af
+                ld c, a
                 ld a, (mod_line_len)
                 cp 10
-                jr nc, mo_over
+                ret nc
                 ld e, a
                 ld d, 0
                 ld hl, tr_chunk
                 add hl, de
-                pop af
-                ld (hl), a
+                ld (hl), c
                 ld hl, mod_line_len
                 inc (hl)
-                ret
-mo_over:
-                pop af
-                ld a, 1
-                ld (mod_line_over), a
                 ret
 mo_line:
                 ld a, (mod_line_len)
                 or a
-                jr z, mo_line_clr
+                ret z
                 ld a, (mod_phase)
                 cp MOD_WAIT_OK
                 jr nz, mo_lc
-                ld a, (mod_line_len)
-                cp 2
-                jr nz, mo_line_clr
-                ld a, (tr_chunk)
-                cp 'O'
-                jr nz, mo_line_clr
-                ld a, (tr_chunk + 1)
-                cp 'K'
+                ld hl, mod_ok
+                call mo_exact
                 jr nz, mo_line_clr
                 ld a, MOD_COMMAND
                 ld (mod_phase), a
@@ -258,9 +237,9 @@ mo_lc:
 mo_line_clr:
                 xor a
                 ld (mod_line_len), a
-                ld (mod_line_over), a
                 ret
 
+; Dial result: CONNECT[ rate] goes online, a failure code ends the dial.
 mo_class:
                 ld a, (mod_line_len)
                 cp 7
@@ -279,62 +258,53 @@ mo_cl_c:
                 ld (mod_phase), a
                 ret
 mo_cl_f:
-                ld hl, mod_nc
-                call mo_exact
-                ret c
-                ld hl, mod_na
-                call mo_exact
-                ret c
-                ld hl, mod_err
-                jp mo_exact
-
-mo_exact:
+                ld hl, mod_fails
+mo_cl_next:
+                ld e, (hl)
+                inc hl
+                ld d, (hl)
+                inc hl
+                ld a, d
+                or e
+                ret z
                 push hl
-                pop de
+                ex de, hl
                 push hl
-                ld b, 0
-mo_ex_loop:
-                ld a, (de)
-                or a
-                jr z, mo_ex_done
-                push af
-                push de
-                ld a, b
-                ld hl, mod_line_len
-                cp (hl)
-                pop de
-                pop af
-                jr nc, mo_ex_no
-                push af
-                push bc
-                ld c, b
-                ld b, 0
-                ld hl, tr_chunk
-                add hl, bc
-                ld a, (hl)
-                ld d, a
-                pop bc
-                pop af
-                cp d
-                jr nz, mo_ex_no
-                inc de
-                inc b
-                jr mo_ex_loop
-mo_ex_done:
-                ld a, b
-                ld hl, mod_line_len
-                cp (hl)
-                jr nz, mo_ex_no
+                call mo_exact
                 pop hl
-                ld (mod_failmsg), hl
-                call mod_close
+                pop de
+                ex de, hl
+                jr nz, mo_cl_next
+                ld (mod_failmsg), de
                 ld a, MOD_FAILED
                 ld (mod_phase), a
-                scf
+                ret
+
+; HL = NUL-terminated code. Z when the collected line is exactly that code.
+mo_exact:
+                ld de, tr_chunk
+                ld a, (mod_line_len)
+                ld b, a
+mo_ex_loop:
+                ld a, (hl)
+                or a
+                jr z, mo_ex_end
+                ld a, b
+                or a
+                jr z, mo_ex_no
+                ld a, (de)
+                cp (hl)
+                ret nz
+                inc hl
+                inc de
+                dec b
+                jr mo_ex_loop
+mo_ex_end:
+                ld a, b
+                or a
                 ret
 mo_ex_no:
-                pop hl
-                or a
+                inc a
                 ret
 
 mod_read:
@@ -351,7 +321,14 @@ mr_have:
                 jp z, mr_perr
                 push hl
                 push bc
+                ; Cap at 255: mr_lim is one byte. BC=512 (empty rl_buf) used
+                ; to set lim=0 and never read - join floods then wedged RX.
+                ld a, b
+                or a
                 ld a, c
+                jr z, mr_lim_ok
+                ld a, 255
+mr_lim_ok:
                 ld (mr_lim), a
                 ld (mr_dest), hl
                 xor a
@@ -360,32 +337,44 @@ mr_loop:
                 ld hl, 0
                 call mo_poll1
                 jr c, mr_pollbad
-                ld a, (mod_pollfd + 2)
-                and POLLNVAL | POLLERR
+                ld a, (live_pfd_ser + 2)
+                and POLLNVAL
                 jr nz, mr_pollbad
-                ld a, (mod_pollfd + 2)
+                ; POLLERR = overrun/framing; do not kill the session.
+                ld a, (live_pfd_ser + 2)
                 and POLLIN | POLLHUP
                 jr z, mr_done
+                ld a, (mr_lim)
+                ld hl, mr_got
+                sub (hl)
+                jr z, mr_done
+                ld e, a
+                ld d, 0
+                push de
+                pop ix
                 call mod_fd_de
                 ld hl, (mr_dest)
-                ld ix, 1
                 ld c, SYS_READ
                 rst 08h
                 jr c, mr_rderr
                 ld a, h
                 or l
-                jr z, mr_hang
-                ld hl, (mr_dest)
-                inc hl
+                jr z, mr_empty
+                push hl
+                ld de, (mr_dest)
+                add hl, de
                 ld (mr_dest), hl
+                pop hl
+                ld a, l
                 ld hl, mr_got
-                inc (hl)
-                ld a, (hl)
-                ld hl, mr_lim
-                cp (hl)
-                jr c, mr_loop
+                add a, (hl)
+                ld (hl), a
+                ; Short read from ser_read: stop this fill.
                 jr mr_done
-mr_hang:
+mr_empty:
+                ld a, (live_pfd_ser + 2)
+                and POLLHUP
+                jr z, mr_done
                 ld a, (mr_got)
                 or a
                 jr nz, mr_lateof
@@ -449,37 +438,35 @@ mr_got:         db 0
 mr_lim:         db 0
 
 mod_write:
+                ; Whole line + CRLF in one SYS_WRITE. Byte-at-a-time wedges after
+                ; NICK's CR once Hayes has CONNECT sitting in the RX path.
                 push bc
                 push hl
-mw_loop:
+                ld de, tr_chunk
                 ld a, b
                 or c
-                jr z, mw_eol
-                ld a, (hl)
-                inc hl
-                push hl
-                push bc
-                ld b, 1
-                call mo_wchr
-                pop bc
-                pop hl
-                jp c, mw_fail
-                dec bc
-                jr mw_loop
-mw_eol:
+                jr z, mw_cr
+                ldir
+mw_cr:
                 ld a, 0Dh
-                call mo_wchr
-                jp c, mw_fail
+                ld (de), a
+                inc de
                 ld a, 0Ah
-                call mo_wchr
-                pop hl
-                pop bc
+                ld (de), a
+                inc de
+                ld hl, tr_chunk
+                ex de, hl
                 or a
-                ret
-mw_fail:
+                sbc hl, de
+                push de
+                push hl
+                pop ix
+                pop hl
+                call mod_fd_de
+                ld c, SYS_WRITE
+                rst 08h
                 pop hl
                 pop bc
-                scf
                 ret
 
 mod_boot_read:
@@ -493,16 +480,43 @@ mod_kick:
                 xor a
                 ret
 
+; Closing the port does not hang up: the modem keeps the call (and a
+; dead TCP link) until it is told. Online, use the Hayes escape and ATH
+; before the close; the drain lets the replies reach the ring first.
 mod_close:
                 ld a, (tr_rfd)
                 cp 0FFh
                 ret z
+                ld a, (mod_phase)
+                cp MOD_ONLINE
+                jr nz, mc_close
+                ld de, MOD_GUARD_TICKS
+                call mc_sleep
+                ld hl, mod_esc
+                ld ix, 3
+                call mod_fd_de
+                ld c, SYS_WRITE
+                rst 08h
+                ld de, MOD_GUARD_TICKS
+                call mc_sleep
+                ld hl, mod_hup
+                ld bc, 5
+                call mod_write
+                ld de, 3
+                call mc_sleep
+mc_close:
+                ld a, (tr_rfd)
                 ld e, a
                 ld d, 0
                 ld c, SYS_CLOSE
                 rst 08h
                 ld a, 0FFh
                 ld (tr_rfd), a
+                ret
+
+mc_sleep:
+                ld c, SYS_SLEEP
+                rst 08h
                 ret
 
 tr_run:
@@ -512,6 +526,8 @@ tr_run:
 tr_replay_run:
                 call net_pump
                 jr nz, tr_replay_run
+                ld a, (cur_win)
+                call win_show
 tr_replay_key:
                 call key_read
                 call key
@@ -519,6 +535,15 @@ tr_replay_key:
                 jr tr_replay_run
 
 live_loop:
+                ; Repaint once per batch of lines rather than once per say.
+                ld a, (say_rows)
+                or a
+                jr z, ll_go
+                xor a
+                ld (say_rows), a
+                ld a, (cur_win)
+                call win_show
+ll_go:
                 call out_flush
                 ld a, (phase)
                 cp PHASE_DEAD
@@ -540,12 +565,17 @@ ll_two:
 ll_poll:
                 jp c, ll_dead
                 ld a, (live_pfd_ser + 2)
-                and POLLIN | POLLHUP | POLLERR | POLLNVAL
+                and POLLNVAL
+                jp nz, ll_dead
+                ; POLLERR alone is overrun/framing noise - do not pump (mod_read
+                ; would spin). Only POLLIN/HUP mean bytes or hangup.
+                ld a, (live_pfd_ser + 2)
+                and POLLIN | POLLHUP
                 call nz, ll_ser
                 ld a, (live_pfd_con + 2)
                 and POLLIN
                 call nz, ll_con
-                jr live_loop
+                jp live_loop
 ll_ser:
 ll_pump:
                 call net_pump
@@ -566,18 +596,22 @@ ll_con:
 ll_dead:
                 ld a, PHASE_DEAD
                 ld (phase), a
-                xor a
-                call win_show
-                jr live_loop
+                call ui_refresh
+                jp live_loop
 
 mod_ser_path:   db "/dev/ser0", 0
 mod_ate:        db "ATE0V1", 0Dh
 mod_ate_len:    equ $ - mod_ate
+mod_esc:        db "+++"
+mod_hup:        db 0Dh, "ATH0"
+mod_ok:         db "OK", 0
 mod_atdt:       db "ATDT", 0
 mod_conn:       db "CONNECT"
 mod_nc:         db "NO CARRIER", 0
 mod_na:         db "NO ANSWER", 0
+mod_busy:       db "BUSY", 0
 mod_err:        db "ERROR", 0
+mod_fails:      dw mod_nc, mod_na, mod_busy, mod_err, 0
 mod_nomodem:    db "no modem", 0
 byte_buf:       db 0
 mod_failmsg:    dw 0

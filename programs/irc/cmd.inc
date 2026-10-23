@@ -87,6 +87,8 @@ csi_miss:
 
 key_submit:
                 call submit
+                call paint_input
+                call out_flush
                 scf
                 ret
 
@@ -116,8 +118,9 @@ ki_s:
                 ld hl, inp_len
                 inc (hl)
                 ld a, (inp_len)
-                cp 64
+                cp 62
                 jr nc, ki_repaint
+                ld a, (key_ch)
                 call out_byte
                 jp out_flush
 ki_repaint:
@@ -127,8 +130,8 @@ ki_repaint:
 submit:
                 ld hl, inp_buf
                 ld a, (inp_len)
-                ld b, a
-                ld c, 0
+                ld c, a
+                ld b, 0
                 add hl, bc
                 ld (hl), 0
                 ld a, (inp_len)
@@ -146,29 +149,16 @@ submit:
                 push de
                 call skip_word_de
                 ex de, hl
+                call skip_ws
                 ld (fmt_arg), hl
                 pop hl
-                ld b, (hl)
-                push bc
-                push hl
+                ld de, cmd_tab
                 ld c, 4
-                ld hl, cmd_tab
-                pop de
-                ex de, hl
                 call lookup
                 jr c, sub_unk
-                push hl
-                pop de
-                pop hl
-                pop bc
-                ld (hl), b
-                ex de, hl
                 call sub_reset
                 jp (hl)
 sub_unk:
-                pop hl
-                pop bc
-                ld (hl), b
                 call sub_reset
                 ld a, 0
                 ld hl, f_err
@@ -247,6 +237,7 @@ skip_word_de:
                 jr skip_word_de
 
 c_wire:
+                ld hl, (wire_fmt)
                 jp wire
 
 c_say:
@@ -304,11 +295,12 @@ cj_try:
                 ld a, c
                 cp 3
                 jr c, cj_try
-                ld a, 0
-                call win_show
                 call sub_reset
+                ld a, 0
                 ld hl, f_joinfull
-                jp say
+                call say
+                xor a
+                jp win_show
 cj_ok:
                 push hl
                 ld hl, (fmt_arg)
@@ -335,17 +327,21 @@ cj_copy_done:
                 ld a, 0
                 ld (de), a
                 pop hl
-cj_wire:
+                ld (fmt_arg), hl
+                push bc
                 ld hl, w_join
-                jp wire
+                call wire
+                pop bc
+                ld a, c
+                jp win_show
 
 c_quit:
                 ld hl, (fmt_arg)
-                ld de, hl
-                ld a, (de)
+                ld a, (hl)
                 or a
                 jr nz, cq_msg
                 ld hl, quit_def
+                ld (fmt_arg), hl
 cq_msg:
                 ld hl, w_quit
                 call wire

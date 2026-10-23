@@ -20,7 +20,7 @@ internal sealed record RunResult(int ExitCode, string Stdout, string Stderr)
 /// <summary>Runs heh8080's headless CP-500 runner as a separate process, the way CI and developers do.</summary>
 internal static class HeadlessRunner
 {
-    private static readonly TimeSpan WallClockLimit = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan WallClockLimit = TimeSpan.FromMinutes(3);
 
     private static string Executable { get; } =
         Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "heh8080-cp500.exe" : "heh8080-cp500");

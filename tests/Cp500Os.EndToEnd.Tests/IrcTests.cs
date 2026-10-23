@@ -37,7 +37,11 @@ public sealed class IrcTests : IDisposable
             "--until-screen", "  aa",
             "--type", "{ENTER}",
             "--until-screen", "caf",
-            "--type", "/join #one{ENTER}/join #two{ENTER}/join #three{ENTER}",
+            "--type", "/join #one{ENTER}",
+            "--until-screen", "#one",
+            "--type", "/join #two{ENTER}",
+            "--until-screen", "#two",
+            "--type", "/join #three{ENTER}",
             "--until-screen", "no free",
             "--type", "{ENTER}",
             "--until-screen", "hidden",
@@ -60,92 +64,204 @@ public sealed class IrcTests : IDisposable
         Assert.Contains(lines, l => l.Contains("* fredi__ waves") || l.Contains("*irc.example*"));
         Assert.Contains(lines, l => l.Contains("sh>"));
 
-        string transcript = System.Text.Encoding.ASCII.GetString(Volume.Open(File.ReadAllBytes(image)).ReadFile("/home/t.out"));
+        string transcript = Encoding.ASCII.GetString(Volume.Open(File.ReadAllBytes(image)).ReadFile("/home/t.out"));
         Assert.Contains("NICK fredi", transcript);
         Assert.Contains("NICK fredi_", transcript);
         Assert.Contains("PONG :keepalive", transcript);
         Assert.Contains("QUIT :", transcript);
     }
 
+    /// <summary>
+    /// Live Hayes dial: NICK/USER over real TCP; session stays online after 001.
+    /// </summary>
     [Fact]
-    public async Task ModemDialRegistersAndQuits()
+    public async Task ModemDialRegistersOverTcp()
     {
-        SerialBoard.Require();
+        await using LocalIrcServer server = new();
+        server.Start();
+        int hayesPort = FreeTcpPort();
+        using CancellationTokenSource cancel = new(TimeSpan.FromSeconds(60));
 
-        using TcpListener listener = new(IPAddress.Loopback, 0);
-        listener.Start();
-        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        using CancellationTokenSource dialCancel = new(TimeSpan.FromSeconds(25));
-        Task bridge = AcceptModemAsync(listener, dialCancel.Token);
+        Task<RunResult> runTask = Task.Run(async () =>
+        {
+            string image = CopyImage();
+            return await HeadlessRunner.RunAsync(
+                "--rom", Roms.Stub, "--disk0", image, "--timeout", "45s",
+                "--rs232", $"hayes:{hayesPort}",
+                "--until-screen", "sh>",
+                "--type", $"/bin/irc fredi 127.0.0.1:{server.Port}{{ENTER}}",
+                "--until-screen", "online",
+                "--run", "3s",
+                "--dump-screen");
+        }, cancel.Token);
 
+        await server.WaitRegisteredAsync(cancel.Token);
+        RunResult run = await runTask;
+
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        Assert.True(server.SawClient("NICK fredi"), string.Join('\n', server.ClientLines));
+        Assert.True(server.SawClient("USER fredi"), string.Join('\n', server.ClientLines));
+        Assert.Contains(Visible(run.Stdout), l => l.Contains("online", StringComparison.Ordinal));
+        Assert.DoesNotContain(Visible(run.Stdout), l => l.Contains("offline", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Dial to a port nobody listens on: the modem answers NO CARRIER and the client exits
+    /// with EIO, back at the shell.
+    /// </summary>
+    [Fact]
+    public async Task ModemDialReportsNoCarrier()
+    {
+        int deadPort = FreeTcpPort();
+        int hayesPort = FreeTcpPort();
         string image = CopyImage();
         RunResult run = await HeadlessRunner.RunAsync(
-            "--rom", Roms.Stub, "--disk0", image, "--write-back", "--timeout", "120s",
+            "--rom", Roms.Stub, "--disk0", image, "--timeout", "30s",
+            "--rs232", $"hayes:{hayesPort}",
             "--until-screen", "sh>",
-            "--type", $"/bin/irc fredi 127.0.0.1:{port}{{ENTER}}",
-            "--until-screen", "online",
-            "--type", "/quit{ENTER}",
-            "--until-screen", "sh>",
+            "--type", $"/bin/irc carol 127.0.0.1:{deadPort}{{ENTER}}",
+            "--until-screen", "NO CARRIER",
+            "--until-screen", "EIO",
+            "--run", "500ms",
             "--dump-screen");
-
-        await bridge;
 
         Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
         string[] lines = Visible(run.Stdout);
-        Assert.Contains(lines, l => l.Contains("fredi") && l.Contains("online"));
+        Assert.Contains(lines, l => l.Contains("NO CARRIER", StringComparison.Ordinal));
+        Assert.StartsWith("sh>", lines[^1], StringComparison.Ordinal);
     }
 
-    private static async Task AcceptModemAsync(TcpListener listener, CancellationToken cancel)
+    /// <summary>
+    /// The server drops the TCP link. The modem only notices on a write, so the client
+    /// shows offline after the second line it sends.
+    /// </summary>
+    [Fact]
+    public async Task ModemHangupGoesOffline()
     {
-        using TcpClient client = await listener.AcceptTcpClientAsync(cancel);
-        await using NetworkStream stream = client.GetStream();
-        StringBuilder cmd = new();
-        bool online = false;
-        byte[] buf = new byte[256];
-        while (!cancel.IsCancellationRequested)
-        {
-            if (!stream.DataAvailable)
-            {
-                await Task.Delay(10, cancel);
-                continue;
-            }
+        await using LocalIrcServer server = new();
+        server.Start();
+        int hayesPort = FreeTcpPort();
 
-            int n = await stream.ReadAsync(buf, cancel);
-            if (n <= 0)
-                break;
+        string image = CopyImage();
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", image, "--timeout", "30s",
+            "--rs232", $"hayes:{hayesPort}",
+            "--until-screen", "sh>",
+            "--type", $"/bin/irc carol 127.0.0.1:{server.Port} #lobby{{ENTER}}",
+            "--until-screen", "welcome to #lobby",
+            "--type", "drop{ENTER}",
+            "--run", "500ms",
+            "--type", "one{ENTER}",
+            "--run", "500ms",
+            "--type", "two{ENTER}",
+            "--until-screen", "offline",
+            "--dump-screen");
 
-            for (int i = 0; i < n; i++)
-            {
-                char ch = (char)buf[i];
-                if (ch == '\r')
-                {
-                    string line = cmd.ToString();
-                    cmd.Clear();
-                    if (line == "ATE0V1")
-                        await WriteAsciiAsync(stream, "\r\nOK\r\n", cancel);
-                    else if (line.StartsWith("ATDT", StringComparison.Ordinal))
-                    {
-                        await WriteAsciiAsync(stream, "\r\nCONNECT 9600\r\n", cancel);
-                        online = true;
-                    }
-                    else if (online)
-                    {
-                        if (line.StartsWith("NICK ", StringComparison.Ordinal))
-                            await WriteAsciiAsync(stream, ":irc.test 001 fredi :Welcome\r\n", cancel);
-                        else if (line.StartsWith("USER ", StringComparison.Ordinal))
-                            await WriteAsciiAsync(stream, ":irc.test 002 fredi :logged in\r\n", cancel);
-                        else if (line.StartsWith("QUIT", StringComparison.Ordinal))
-                            return;
-                    }
-                }
-                else if (ch != '\n')
-                    cmd.Append(ch);
-            }
-        }
+        string client = string.Join('\n', server.ClientLines);
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout + "\nclient:\n" + client);
+        Assert.True(server.SawClient("PRIVMSG #lobby :drop"), client);
+        Assert.Contains(Visible(run.Stdout), l => l.Contains("offline", StringComparison.Ordinal));
     }
 
-    private static async Task WriteAsciiAsync(NetworkStream stream, string text, CancellationToken cancel) =>
-        await stream.WriteAsync(Encoding.ASCII.GetBytes(text), cancel);
+    /// <summary>
+    /// /quit hangs the modem up, so the next /bin/irc dials again and registers with a
+    /// second server.
+    /// </summary>
+    [Fact]
+    public async Task ModemRedialsAfterQuit()
+    {
+        await using LocalIrcServer first = new();
+        await using LocalIrcServer second = new();
+        first.Start();
+        second.Start();
+        int hayesPort = FreeTcpPort();
+        using CancellationTokenSource cancel = new(TimeSpan.FromSeconds(60));
+
+        string image = CopyImage();
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", image, "--timeout", "30s",
+            "--rs232", $"hayes:{hayesPort}",
+            "--until-screen", "sh>",
+            "--type", $"/bin/irc carol 127.0.0.1:{first.Port}{{ENTER}}",
+            "--until-screen", "Welcome to the test net",
+            "--type", "/quit{ENTER}",
+            "--until-screen", "sh>",
+            "--type", $"/bin/irc carol 127.0.0.1:{second.Port}{{ENTER}}",
+            "--until-screen", "Welcome to the test net",
+            "--dump-screen");
+
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        await first.WaitQuitAsync(cancel.Token);
+        await second.WaitRegisteredAsync(cancel.Token);
+        Assert.True(first.SawClient("QUIT"), string.Join('\n', first.ClientLines));
+        Assert.True(second.SawClient("NICK carol"), string.Join('\n', second.ClientLines));
+        Assert.Contains(Visible(run.Stdout), l => l.Contains("online", StringComparison.Ordinal));
+        Assert.DoesNotContain(Visible(run.Stdout), l => l.Contains("offline", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Live Hayes session: autojoin and /join, read and send channel messages,
+    /// then the other slash commands, checked on screen and on the wire.
+    /// </summary>
+    [Fact]
+    public async Task ModemDialChatsOverTcp()
+    {
+        await using LocalIrcServer server = new();
+        server.Start();
+        int hayesPort = FreeTcpPort();
+
+        string image = CopyImage();
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", image, "--timeout", "30s",
+            "--rs232", $"hayes:{hayesPort}",
+            "--until-screen", "sh>",
+            "--type", $"/bin/irc carol 127.0.0.1:{server.Port} #lobby{{ENTER}}",
+            "--until-screen", "welcome to #lobby",
+            "--until-screen", "[2] #lobby",
+            "--type", "hi lobby{ENTER}",
+            "--until-screen", "bob heard you",
+            "--type", "/join #room{ENTER}",
+            "--until-screen", "welcome to #room",
+            "--until-screen", "[3] #room",
+            "--type", "hello room{ENTER}",
+            "--until-screen", "<carol> hello room",
+            "--until-screen", "bob heard you",
+            "--type", "/me waves{ENTER}",
+            "--until-screen", "* carol waves",
+            "--type", "/msg bob secret{ENTER}",
+            "--run", "500ms",
+            "--type", "/nick cara{ENTER}",
+            "--until-screen", "#room   cara",
+            "--type", "/names{ENTER}",
+            "--run", "500ms",
+            "--type", "/whois bob{ENTER}",
+            "--run", "500ms",
+            "--type", "/quote TIME{ENTER}",
+            "--run", "500ms",
+            "--type", "/part{ENTER}",
+            "--until-screen", "[1] -",
+            "--type", "/quit bye{ENTER}",
+            "--until-screen", "sh>",
+            "--dump-screen");
+
+        string client = string.Join('\n', server.ClientLines);
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout + "\nclient:\n" + client);
+        string[] expected =
+        [
+            "NICK carol", "USER carol 0 * :CP-500", "JOIN #lobby", "PRIVMSG #lobby :hi lobby",
+            "JOIN #room", "PRIVMSG #room :hello room", "PRIVMSG #room :\u0001ACTION waves\u0001",
+            "PRIVMSG bob :secret", "NICK cara", "NAMES #room", "WHOIS bob", "TIME", "PART #room",
+            "QUIT :bye",
+        ];
+        Assert.Equal(expected, server.ClientLines);
+    }
+
+    private static int FreeTcpPort()
+    {
+        using TcpListener probe = new(IPAddress.Loopback, 0);
+        probe.Start();
+        return ((IPEndPoint)probe.LocalEndpoint).Port;
+    }
 
     private string CopyImage()
     {

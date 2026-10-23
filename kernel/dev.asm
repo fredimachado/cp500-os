@@ -125,10 +125,10 @@ dev_go:
                 ret c
                 cp DEV_ROWS
                 jp nc, EXT_GO
+                push bc
+                push hl
                 ld b, a
                 ld c, e
-                pop hl
-                push hl
                 ld hl, dev_table
                 or a
                 jr z, dg_off
@@ -142,10 +142,10 @@ dg_off:
                 ld e, (hl)
                 inc hl
                 ld d, (hl)
-                ex de, hl
+                pop hl
                 pop bc
-                push bc
-                jp (hl)
+                push de
+                ret
 
 dev_call:
                 push af
@@ -191,9 +191,10 @@ dc_ioctl:
                 pop af
                 cp KIND_DEV
                 jr c, dc_ioctl_out
-                ld a, d
+                ld e, a
                 sub KIND_DEV
                 cp DEV_ROWS
+                ld a, e
                 jr nc, dc_ioctl_out
                 push ix
                 ld e, DR_IOCTL
@@ -296,12 +297,13 @@ dc_kind:
                 jp z, net_sock_close
                 cp KIND_DEV
                 ret c
+                ld e, a
                 sub KIND_DEV
                 cp DEV_ROWS
                 ret nc
+                ld a, e
                 ld e, DR_CLOSE
-                call dev_go
-                ret
+                jp dev_go
 
 dev_isr:
                 push af
@@ -323,14 +325,16 @@ dv_tick:
                 pop af
                 jp isr
 di_serial:
+                push bc
                 in a, (PORT_IRQ)
                 ld b, a
                 bit IRQ_SER_RX_BIT, b
-                jr z, di_rx
+                jr z, di_ser
                 bit IRQ_SER_TX_BIT, b
-                jr z, di_tx
+                jr z, di_ser
+                pop bc
                 jr dv_tick
-di_rx:
+di_ser:
                 push bc
                 push de
                 push hl
@@ -340,20 +344,8 @@ di_rx:
                 pop de
                 pop bc
                 bit IRQ_TIMER_BIT, b
-                jr z, di_done
-                jr dv_tick
-di_tx:
-                push bc
-                push de
-                push hl
-                ld a, b
-                call SEV_IRQ
-                pop hl
-                pop de
                 pop bc
-                bit IRQ_TIMER_BIT, b
-                jr z, di_done
-                jr dv_tick
+                jr z, dv_tick
 di_done:
                 pop af
                 ei

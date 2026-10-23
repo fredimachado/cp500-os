@@ -39,6 +39,11 @@ so_probe:
                 ei
                 xor a
                 out (PORT_SER_RESET), a
+                ld b, 4
+so_flush:
+                ; A byte the last session never read keeps DR set; drop it, or the probe fails.
+                in a, (PORT_SER_DATA)
+                djnz so_flush
                 in a, (PORT_SER_STATUS)
                 and SER_ST_DR | SER_ST_THRE
                 cp SER_ST_THRE
@@ -73,19 +78,12 @@ so_probe:
                 ld bc, CFG_SIZE
                 ldir
                 ld hl, SER + S_STATS
-                ld bc, STATS_SIZE
+                ld b, STATS_SIZE
                 xor a
-                ld (hl), a
-                inc hl
-                dec bc
-                jr so_stat_z
 so_stat_z:
                 ld (hl), a
                 inc hl
-                dec bc
-                ld a, b
-                or c
-                jr nz, so_stat_z
+                djnz so_stat_z
                 in a, (PORT_SER_MODEM)
                 bit SER_MS_DCD_BIT, a
                 ld a, LN_DTR
@@ -126,33 +124,38 @@ ser_read:
                 ld (io_got), hl
 sr_loop:
                 ei
-                ld a, (SER + S_RXH)
-                ld c, a
+                ; RXH = write head (ser_rx), RXT = read tail. Available = RXH - RXT.
+                ; RXT in E; clamp copy count like ser_write (never sbc+ld b,l).
                 ld a, (SER + S_RXT)
-                sub c
+                ld e, a
+                ld a, (SER + S_RXH)
+                sub e
                 jr z, sr_wait
                 ld b, a
                 ld hl, (io_len)
+                ld a, h
                 or a
-                sbc hl, bc
+                jr nz, sr_n
+                ld a, l
+                cp b
                 jr nc, sr_n
-                ld b, l
+                ld b, a
 sr_n:
                 ld a, (SER + S_RXPG)
                 ld h, a
-                ld l, c
+                ld l, e
                 ld de, (io_buf)
-                push bc
+                ld c, b
 sr_copy:
                 ld a, (hl)
-                inc hl
+                inc l
                 ld (de), a
                 inc de
                 djnz sr_copy
-                pop bc
-                ld a, (SER + S_RXH)
-                add a, b
-                ld (SER + S_RXH), a
+                ld a, (SER + S_RXT)
+                add a, c
+                ld (SER + S_RXT), a
+                ld b, 0
                 ld hl, (io_buf)
                 add hl, bc
                 ld (io_buf), hl
@@ -163,16 +166,17 @@ sr_copy:
                 or a
                 sbc hl, bc
                 ld (io_len), hl
+                ; Raise RTS after high water once below low mark (do not block).
                 ld a, (SER + S_HI_SET)
                 ld c, a
                 ld a, (SER + S_HI_CLR)
                 cp c
-                jr nz, sr_hi
+                jr z, sr_hi
                 ld a, (SER + S_RXH)
                 ld hl, SER + S_RXT
                 sub (hl)
                 cp SER_RX_LOW + 1
-                jr nc, sr_wait
+                jr nc, sr_hi
                 ld hl, SER + S_HI_CLR
                 ld (hl), c
                 di
@@ -190,7 +194,13 @@ sr_hi:
 sr_wait:
                 call hung
                 jr nz, sr_hung
+                ld hl, (io_got)
+                ld a, h
+                or l
                 ld a, CH_SER
+                jp z, block_retry
+                ld hl, 0
+                ld (io_len), hl
                 jp io_round
 sr_hung:
                 xor a
@@ -292,7 +302,8 @@ ser_ioctl:
                 jp DEV_V_EINVAL
 si_getcfg:
                 ld hl, SER + S_CFG
-                ld de, ix
+                push ix
+                pop de
                 ld bc, CFG_SIZE
                 ldir
                 xor a
@@ -401,7 +412,8 @@ si_brk_wait2:
 si_stats:
                 di
                 ld hl, SER + S_STATS
-                ld de, ix
+                push ix
+                pop de
                 ld bc, STATS_SIZE
                 ldir
                 ld hl, SER + S_STATS
@@ -452,13 +464,12 @@ ser_revents:
                 ld c, POLLIN
 sr_ev1:
                 call hung
-                jr z, sr_ev2
+                jr z, sr_ev_tx
                 ld a, c
-                or POLLIN | POLLHUP
+                or POLLHUP
                 ld c, a
-sr_ev2:
-                call hung
-                jr nz, sr_ev3
+                jr sr_ev3
+sr_ev_tx:
                 ld a, (SER + S_TXH)
                 ld hl, SER + S_TXT
                 sub (hl)
@@ -485,7 +496,9 @@ sr_ev4:
 ser_irq:
                 bit IRQ_SER_RX_BIT, a
                 jr nz, si_done
+                push af
                 call ser_rx
+                pop af
 si_done:
                 bit IRQ_SER_TX_BIT, a
                 ret nz
@@ -493,45 +506,34 @@ si_done:
 
 ser_rx:
                 in a, (PORT_SER_STATUS)
+                bit SER_ST_DR_BIT, a
+                ret z
                 ld b, a
                 in a, (PORT_SER_DATA)
                 ld c, a
-                bit SER_ST_DR_BIT, b
-                ret z
                 bit SER_ST_OE_BIT, b
                 call nz, stat_inc0
                 bit SER_ST_FE_BIT, b
                 call nz, stat_inc1
                 bit SER_ST_PE_BIT, b
                 call nz, stat_inc2
-                bit SER_ST_OE_BIT, b
-                jr z, srx_ok
-                bit SER_ST_FE_BIT, b
-                jr z, srx_ok
-                bit SER_ST_PE_BIT, b
-                jr z, srx_ok
-                call err_bump
-srx_ok:
                 ld a, (SER + S_RXH)
                 ld hl, SER + S_RXT
                 sub (hl)
                 cp 255
                 jr z, srx_drop
-                push bc
-                ld a, (SER + S_RXH)
-                ld hl, SER + S_RXT
-                sub (hl)
-                ld b, a
                 ld a, (SER + S_RXPG)
                 ld h, a
                 ld a, (SER + S_RXH)
                 ld l, a
-                pop af
-                ld (hl), a
-                ld hl, SER + S_RXH
-                inc (hl)
+                ld (hl), c
+                ld a, (SER + S_RXH)
+                ld b, a
+                inc a
+                ld (SER + S_RXH), a
                 ld a, b
-                or a
+                ld hl, SER + S_RXT
+                sub (hl)
                 jr nz, srx_wake
                 ld a, CH_SER
                 call wake
@@ -880,8 +882,10 @@ ring_take:
                 ret c
                 ld a, (RUN_END)
                 dec a
+                push af
                 call owner_of
                 ld (hl), 0FFh
+                pop af
                 ret
 
 ring_give:

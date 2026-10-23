@@ -77,10 +77,22 @@ fr_win:
                 jp fr_str
 fr_arg:         ld hl, (fmt_arg)
                 jp fr_str
+; First argument word only (until space). fr_str would emit the rest
+; of the line and produced "PRIVMSG bob secret :secret".
 fr_arg1:
                 ld hl, (fmt_arg)
                 call skip_ws
-                jp fr_str
+fr_word:
+                ld a, (hl)
+                or a
+                ret z
+                cp ' '
+                ret z
+                push hl
+                call fmt_emit_a
+                pop hl
+                inc hl
+                jr fr_word
 fr_argr:
                 ld hl, (fmt_arg)
                 call skip_ws
@@ -92,7 +104,7 @@ fr_arg1w:
                 call skip_ws
                 ld a, (hl)
                 or a
-                jp nz, fr_str
+                jr nz, fr_word
                 ld a, (cur_win)
                 call whdr_ptr
                 ld de, W_NAME
@@ -328,6 +340,20 @@ lu_hit:
                 inc de
                 ld a, (de)
                 ld h, a
+                push hl
+                ld a, c
+                cp 4
+                jr c, lu_hit_1
+                ; Second payload word (format for c_wire). Not IX: RST 08h
+                ; syscalls use IX as the byte count.
+                inc de
+                ld a, (de)
+                ld (wire_fmt), a
+                inc de
+                ld a, (de)
+                ld (wire_fmt + 1), a
+lu_hit_1:
+                pop hl
                 pop de
                 pop bc
                 pop de

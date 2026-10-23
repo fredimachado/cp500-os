@@ -18,20 +18,36 @@ start:
                 ld hl, out_buf
                 ld (out_ptr), hl
                 pop bc
+                ; tr_open clobbers IX (syscall byte counts); the channel came back in DE.
+                push de
+                pop ix
                 ld hl, bc
                 call net_start
                 call tr_boot_read
+                ld a, (tr_kind)
+                cp TR_KIND_MODEM
+                jr nz, start_pump
+                ; mod_open already read through CONNECT and the server speaks only
+                ; after NICK/USER, so there is nothing to pump yet.
+                ld a, RL_READY
+                ld (rl_state), a
+                jr start_reg
+start_pump:
+                call net_pump
+start_reg:
+                call net_register
+                ; Paint after NICK/USER so "online" means the session is in
+                ; live_loop next - not still blocked in register TX (kbd ring
+                ; is only 32 bytes; typing during that write drops keys).
                 xor a
                 call win_show
-                call net_pump
-                call net_register
                 jp tr_run
 
 open_fail:
-                push af
+                ld c, a
                 ld a, h
                 or l
-                pop af
+                ld a, c
                 jp z, fail
                 push af
                 push hl
@@ -120,26 +136,24 @@ tr_wblk         equ bss + 1B00h
 tr_chunk        equ bss + 1C00h
 inp_buf         equ bss + 1D00h
 misc            equ bss + 1E00h
-bss_end         equ bss + 1F00h
+msg_nick        equ bss + 1F00h
+bss_end         equ bss + 1F20h
 
                 assert bss_end - bss <= IRC_BSS
 
 whdr            equ misc + 00h
-msg_nick        equ rl_buf + 1C0h
 msg_cmd         equ misc + 62h
 msg_par         equ misc + 72h
-msg_n           equ misc + 0ECh
+msg_n           equ misc + 0EDh
 wf_at           equ misc + 0EEh
 mod_phase       equ misc + 0EFh
 mod_line_len    equ misc + 0F0h
-mod_line_over   equ misc + 0F1h
 mod_pending     equ misc + 0F2h
 mod_pending_err equ misc + 0F3h
 tr_kind         equ misc + 0F4h
 live_pfd_con    equ misc + 0F5h
 live_pfd_ser    equ misc + 0F8h
 mod_host        equ misc + 0FBh
-mod_pollfd      equ misc + 0FDh
 me              equ misc + 90h
 autojoin        equ misc + 0B0h
 phase           equ misc + 0C8h
@@ -171,3 +185,4 @@ key_ch          equ misc + 0E7h
 say_lastsp      equ misc + 0E8h
 sl_ptr          equ misc + 0E9h
 key_byte        equ misc + 0EAh
+wire_fmt        equ misc + 0EBh
