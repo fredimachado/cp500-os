@@ -4,6 +4,8 @@ A small, Unix-flavored operating system for the Prologica CP-500, a Brazilian
 TRS-80 Model III compatible: preemptive multitasking, a hierarchical file
 system, virtual consoles and pipes on a 2 MHz Z80 with 48 KiB of RAM.
 
+![cp500-os running in the heh8080 emulator](img/cp500-os.jpeg)
+
 Status: milestone 8 (W5100 sockets, telnet, get, and time sync). See [docs/design.md](docs/design.md) for the specification
 and [docs/guide.md](docs/guide.md) for how the system works and how to use it.
 
