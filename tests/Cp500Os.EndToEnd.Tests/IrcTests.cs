@@ -72,6 +72,35 @@ public sealed class IrcTests : IDisposable
     }
 
     /// <summary>
+    /// LEFT is the CP-500 backspace key (ESC [ D). It must rub out input, not
+    /// jump through a broken CSI table and exit 68 (ASCII 'D').
+    /// </summary>
+    [Fact]
+    public async Task LeftArrowRubsOutInputWithoutExiting()
+    {
+        await using LocalIrcServer server = new();
+        server.Start();
+        int hayesPort = FreeTcpPort();
+
+        string image = CopyImage();
+        RunResult run = await HeadlessRunner.RunAsync(
+            "--rom", Roms.Stub, "--disk0", image, "--timeout", "30s",
+            "--rs232", $"hayes:{hayesPort}",
+            "--until-screen", "sh>",
+            "--type", $"/bin/irc carol 127.0.0.1:{server.Port} #lobby{{ENTER}}",
+            "--until-screen", "welcome to #lobby",
+            "--type", "xy{LEFT}{LEFT}ok{ENTER}",
+            "--until-screen", "<carol> ok",
+            "--type", "/quit{ENTER}",
+            "--until-screen", "sh>",
+            "--dump-screen");
+
+        Assert.True(run.ExitCode == 0, run.Stderr + run.Stdout);
+        Assert.DoesNotContain(Visible(run.Stdout), l => l.Contains("exit 68", StringComparison.Ordinal));
+        Assert.Contains(server.ClientLines, l => l.Contains("PRIVMSG #lobby :ok", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Live Hayes dial: NICK/USER over real TCP; session stays online after 001.
     /// </summary>
     [Fact]

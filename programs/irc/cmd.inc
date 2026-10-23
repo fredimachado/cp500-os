@@ -69,14 +69,13 @@ csi_f:
                 inc hl
                 inc hl
                 jr csi_f
+; Entry is db key; dw handler (3 bytes). Same layout as err_tab in run.inc.
 csi_hit:
                 inc hl
-                inc hl
                 ld a, (hl)
+                inc hl
+                ld h, (hl)
                 ld l, a
-                inc hl
-                ld a, (hl)
-                ld h, a
                 pop bc
                 scf
                 ret
@@ -382,11 +381,11 @@ skip_ws_de:
                 jr skip_ws_de
 
 csi_tab:
-                db 'D', 0
+                db 'D'
                 dw key_rubout
-                db 'B', 0
+                db 'B'
                 dw win_cycle
-                db 'C', 0
+                db 'C'
                 dw win_page
                 db 0
 
